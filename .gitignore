@@ -29,6 +29,13 @@ build/
 
 # Data files
 data/
+*.csv
+*.h5
+*.npy
+*.npz
+*.pkl
+*.pth
+*.pt
 
 # Logs
 *.log
@@ -39,3 +46,17 @@ data/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Weights and biases
+wandb/
+checkpoints/
+validation_images/
+val/
+augmented_examples/
+test/
+validation/
+
+# Photos
+*.jpg
+*.jpeg
+*.png

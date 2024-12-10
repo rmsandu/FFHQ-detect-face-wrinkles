@@ -1,0 +1,21 @@
+# config.yaml
+epochs: 6
+batch_size: 2
+learning_rate: 0.0001
+val_percent: 0.1
+test_percent: 0.1
+amp: true
+weight_decay: 0.0004
+gradient_clipping: 1.0
+patience: 5
+augmentation: False
+loss_function:
+  name: "CombinedLoss" # Options: "CombinedLoss", "BCEWithLogitsLoss"
+  alpha: 0.7 # For CombinedLoss: Weight for Dice Loss
+  gamma: 2.0 # For Focal Loss
+  focal_alpha: 0.25 # Class weight for Focal Loss
+checkpoint_dir: "./checkpoints/"
+image_dir: "./data/masked_face_images"
+mask_dir: "./data/manual_wrinkle_masks"
+wandb_project: "U-Net-Face"
+wandb_entity: "ralucam-sandu"

@@ -1,254 +1,257 @@
-import argparse
-import logging
 import os
-import random
-import sys
+import logging
+import yaml
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as TF
+import wandb
 from pathlib import Path
-from torch import optim
+from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import wandb
-from evaluate import evaluate
-from utils.dice_score import dice_loss
 from unet import UNet
-from utils.preprocess import WrinkleDataset, get_transforms
+from utils.sanity_check_dimensions import check_dimensions_and_sanity
+from utils.dataset_loading import (
+    WrinkleDataset,
+    get_debug_transforms,
+    get_augmentation_transforms,
+)
+from utils.dataset_metrics import analyze_class_imbalance
+from evaluate import evaluate
+from losses import CombinedLoss
 
-dir_img = Path('./data/masked_face_images/')
-dir_mask = Path('./data/masks/')
-dir_checkpoint = Path('./checkpoints/')
+
+# Load YAML configuration
+def load_config(config_file):
+    with open(config_file, "r") as file:
+        return yaml.safe_load(file)
 
 
-def train_model(
-        model,
-        device,
-        epochs: int = 5,
-        batch_size: int = 4,
-        learning_rate: float = 1e-5,
-        val_percent: float = 0.2,
-        save_checkpoint: bool = True,
-        img_scale: float = 0.5,
-        amp: bool = False,
-        weight_decay: float = 1e-8,
-        momentum: float = 0.999,
-        gradient_clipping: float = 1.0,
-):
-    # 1. Create dataset
-    try:
-       transform = get_transforms()
-       dataset = WrinkleDataset(image_dir=dir_img, mask_dir=dir_mask, transform=transform)
+def train_model(model, device, config):
+    """
+    Trains the U-Net model on the wrinkle segmentation task.
 
-    except (AssertionError, RuntimeError, IndexError):
-        print('Error loading the dataset. Check the dataset directory and make sure the images are in the correct format')
+    Args:
+        model: PyTorch model to train.
+        device: Device to use for training ('cuda' or 'cpu').
+        config: Configuration dictionary loaded from the YAML file.
+    """
+    # Extract configuration
+    epochs = config["epochs"]
+    batch_size = config["batch_size"]
+    learning_rate = config["learning_rate"]
+    val_percent = config["val_percent"]
+    val_test = config["test_percent"]
+    weight_decay = config["weight_decay"]
+    gradient_clipping = config["gradient_clipping"]
+    amp = config["amp"]
+    checkpoint_dir = Path(config["checkpoint_dir"])
+    image_dir = Path(config["image_dir"])
+    mask_dir = Path(config["mask_dir"])
 
-    # 2. Split into train / validation partitions
-    n_val = int(len(dataset) * val_percent)
-    n_train = len(dataset) - n_val
-    train_set, val_set = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0))
+    if config["loss_function"]["name"] == "CombinedLoss":
+        loss_fn = CombinedLoss(
+            alpha=config["loss_function"]["alpha"],
+            gamma=config["loss_function"]["gamma"],
+            focal_alpha=config["loss_function"]["focal_alpha"],
+        )
+    elif config["loss_function"]["name"] == "BCEWithLogitsLoss":
+        loss_fn = nn.BCEWithLogitsLoss()
+    else:
+        raise ValueError(
+            f"Unsupported loss function: {config['loss_function']['name']}"
+        )
 
-    # 3. Create data loaders
-    loader_args = dict(batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True)
-    train_loader = DataLoader(train_set, shuffle=True, **loader_args)
-    val_loader = DataLoader(val_set, shuffle=False, drop_last=True, **loader_args)
+    wandb.init(project=config["wandb_project"], entity=config["wandb_entity"])
 
-    # Test dataset loading
-    image, mask = dataset[0]
+    # Validate data directories
+    if not image_dir.exists() or not mask_dir.exists():
+        raise FileNotFoundError(
+            f"Image or mask directory does not exist: {image_dir}, {mask_dir}"
+        )
+    if (
+        len(list(image_dir.glob("*.PNG"))) == 0
+        or len(list(mask_dir.glob("*.png"))) == 0
+    ):
+        raise RuntimeError(
+            f"No Image (png, jpeg, jpg) files found in the specified directories: {image_dir}, {mask_dir}"
+        )
 
-    # Visualize
-    plt.subplot(1, 2, 1)
-    plt.imshow(image.permute(1, 2, 0))  # Convert from CHW to HWC
-    plt.title("Image")
-    plt.subplot(1, 2, 2)
-    plt.imshow(mask.squeeze(), cmap="gray")
-    plt.title("Mask")
-    plt.show()
-
-    # (Initialize logging)
-    experiment = wandb.init(project='U-Net-Face', resume='allow', entity='rmsandu')
-    experiment.config.update(
-        dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
-             val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp)
+    # Create dataset
+    transform = (
+        get_augmentation_transforms()
+        if config["augmentation"]
+        else get_debug_transforms()
+    )
+    dataset = WrinkleDataset(
+        image_dir=image_dir, mask_dir=mask_dir, transform=transform
     )
 
-    logging.info(f'''Starting training:
-        Epochs:          {epochs}
-        Batch size:      {batch_size}
-        Learning rate:   {learning_rate}
-        Training size:   {n_train}
-        Validation size: {n_val}
-        Checkpoints:     {save_checkpoint}
-        Device:          {device.type}
-        Images scaling:  {img_scale}
-        Mixed Precision: {amp}
-    ''')
+    # Analyze class imbalance
+    analyze_class_imbalance(DataLoader(dataset, batch_size=batch_size, shuffle=False))
+    # Split dataset
+    n_val = int(len(dataset) * val_percent)
+    n_test = int(len(dataset) * val_test)  # 10% for testing
+    n_train = len(dataset) - n_val - n_test
 
-    # 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
-    optimizer = optim.RMSprop(model.parameters(),
-                              lr=learning_rate, weight_decay=weight_decay, momentum=momentum, foreach=True)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=5)  # goal: maximize Dice score
+    train_set, val_set, test_set = random_split(
+        dataset, [n_train, n_val, n_test], generator=torch.Generator().manual_seed(42)
+    )
+
+    # DataLoaders
+    loader_args = {
+        "batch_size": batch_size,
+        "num_workers": os.cpu_count(),
+        "pin_memory": True,
+    }
+    train_loader = DataLoader(train_set, shuffle=True, **loader_args)
+    val_loader = DataLoader(val_set, shuffle=False, **loader_args)
+
+    check_dimensions_and_sanity(train_loader, device=device)
+    # Optimizer, Scheduler, and Loss
+    optimizer = optim.AdamW(
+        model.parameters(), lr=learning_rate, weight_decay=weight_decay
+    )
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, "max", patience=5)
+
+    # Mixed Precision
     grad_scaler = torch.amp.GradScaler(enabled=amp)
-    criterion = nn.CrossEntropyLoss() if model.n_classes > 1 else nn.BCEWithLogitsLoss()
-    global_step = 0
 
-    # 5. Begin training
-    for epoch in range(1, epochs + 1):
+    # Start WandB Experiment
+    wandb.config.update(config)
+
+    logging.info("Starting training: %d epochs, batch size %d", epochs, batch_size)
+
+    best_val_score = 0.0  # Track the best validation Dice score
+    counter = 0  # Number of epochs without improvement
+    # Initialize the combined loss
+    loss_fn = CombinedLoss(alpha=0.7, gamma=2.0, focal_alpha=0.25)
+
+    # Training Loop
+    for epoch in range(epochs):
         model.train()
         epoch_loss = 0
-        with tqdm(total=n_train, desc=f'Epoch {epoch}/{epochs}', unit='img') as pbar:
+        with tqdm(
+            total=n_train, desc=f"Epoch {epoch + 1}/{epochs}", unit="img"
+        ) as pbar:
             for batch in train_loader:
-                images, true_masks = batch['image'], batch['mask']
+                images = batch["image"].to(device, dtype=torch.float32)
+                true_masks = batch["mask"].to(device, dtype=torch.float32)
 
-                assert images.shape[1] == model.n_channels, \
-                    f'Network has been defined with {model.n_channels} input channels, ' \
-                    f'but loaded images have {images.shape[1]} channels. Please check that ' \
-                    'the images are loaded correctly.'
+                # verify the batch size for images and masks
+                assert (
+                    images.shape[0] == true_masks.shape[0]
+                ), "Batch size mismatch between images and masks"
 
-                images = images.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
-                true_masks = true_masks.to(device=device, dtype=torch.long)
-
-                with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
+                # Forward Pass with AMP
+                with torch.amp.autocast(device_type="cuda", enabled=amp):
                     masks_pred = model(images)
-                    if model.n_classes == 1:
-                        loss = criterion(masks_pred.squeeze(1), true_masks.float())
-                        loss += dice_loss(F.sigmoid(masks_pred.squeeze(1)), true_masks.float(), multiclass=False)
-                    else:
-                        loss = criterion(masks_pred, true_masks)
-                        loss += dice_loss(
-                            F.softmax(masks_pred, dim=1).float(),
-                            F.one_hot(true_masks, model.n_classes).permute(0, 3, 1, 2).float(),
-                            multiclass=True
+                    if config["loss_function"]["name"] == "CombinedLoss":
+                        loss, dice_loss_value, focal_loss_value = loss_fn(
+                            masks_pred.squeeze(1), true_masks
                         )
+                        wandb.log(
+                            {
+                                "train_dice_loss": dice_loss_value.item(),
+                                "train_focal_loss": focal_loss_value.item(),
+                            }
+                        )
+                    else:
+                        loss = loss_fn(masks_pred.squeeze(1), true_masks)
 
+                # Backpropagation
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
+
+                # Gradient Clipping
                 grad_scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clipping)
+
                 grad_scaler.step(optimizer)
                 grad_scaler.update()
 
-                pbar.update(images.shape[0])
-                global_step += 1
+                # Update Progress Bar
                 epoch_loss += loss.item()
-                experiment.log({
-                    'train loss': loss.item(),
-                    'step': global_step,
-                    'epoch': epoch
-                })
-                pbar.set_postfix(**{'loss (batch)': loss.item()})
+                pbar.update(images.shape[0])
+                pbar.set_postfix({"loss": loss.item()})
+                wandb.log({"train_loss": loss.item()})
 
-                # Evaluation round
-                division_step = (n_train // (5 * batch_size))
-                if division_step > 0:
-                    if global_step % division_step == 0:
-                        histograms = {}
-                        for tag, value in model.named_parameters():
-                            tag = tag.replace('/', '.')
-                            if not (torch.isinf(value) | torch.isnan(value)).any():
-                                histograms['Weights/' + tag] = wandb.Histogram(value.data.cpu())
-                            if not (torch.isinf(value.grad) | torch.isnan(value.grad)).any():
-                                histograms['Gradients/' + tag] = wandb.Histogram(value.grad.data.cpu())
+        logging.info(f"Epoch {epoch + 1}: Loss = {epoch_loss / len(train_loader):.4f}")
 
-                        val_score = evaluate(model, val_loader, device, amp)
-                        scheduler.step(val_score)
-
-                        logging.info('Validation Dice score: {}'.format(val_score))
-                        try:
-                            experiment.log({
-                                'learning rate': optimizer.param_groups[0]['lr'],
-                                'validation Dice': val_score,
-                                'images': wandb.Image(images[0].cpu()),
-                                'masks': {
-                                    'true': wandb.Image(true_masks[0].float().cpu()),
-                                    'pred': wandb.Image(masks_pred.argmax(dim=1)[0].float().cpu()),
-                                },
-                                'step': global_step,
-                                'epoch': epoch,
-                                **histograms
-                            })
-                        except:
-                            pass
-
-        if save_checkpoint:
-            Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
-            state_dict = model.state_dict()
-            state_dict['mask_values'] = dataset.mask_values
-            torch.save(state_dict, str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch)))
-            logging.info(f'Checkpoint {epoch} saved!')
-
-
-def get_args():
-    parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
-    parser.add_argument('--epochs', '-e', metavar='E', type=int, default=5, help='Number of epochs')
-    parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=1, help='Batch size')
-    parser.add_argument('--learning-rate', '-l', metavar='LR', type=float, default=1e-5,
-                        help='Learning rate', dest='lr')
-    parser.add_argument('--load', '-f', type=str, default=False, help='Load model from a .pth file')
-    parser.add_argument('--scale', '-s', type=float, default=1, help='Downscaling factor of the images')
-    parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0,
-                        help='Percent of the data that is used as validation (0-100)')
-    parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
-    parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-    parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
-
-    return parser.parse_args()
-
-
-if __name__ == '__main__':
-    args = get_args()
-
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logging.info(f'Using device {device}')
-
-    # Change here to adapt to your data
-    # n_channels=3 for RGB images
-    # n_classes is the number of probabilities you want to get per pixel
-    model = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
-    model = model.to(memory_format=torch.channels_last)
-
-    logging.info(f'Network:\n'
-                 f'\t{model.n_channels} input channels\n'
-                 f'\t{model.n_classes} output channels (classes)\n'
-                 f'\t{"Bilinear" if model.bilinear else "Transposed conv"} upscaling')
-
-    if args.load:
-        state_dict = torch.load(args.load, map_location=device)
-        del state_dict['mask_values']
-        model.load_state_dict(state_dict)
-        logging.info(f'Model loaded from {args.load}')
-
-    model.to(device=device)
-    try:
-        train_model(
-            model=model,
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            learning_rate=args.lr,
-            device=device,
-            img_scale=args.scale,
-            val_percent=args.val / 100,
-            amp=args.amp
+        # Validation
+        val_score = evaluate(
+            model,
+            val_loader,
+            device,
+            amp=amp,
+            log_images=(epoch % 5 == 0),
+            save_images=(epoch % 5 == 0),
+            epoch=epoch,
+            run_name=wandb.run.name,
+            mode="val",
         )
-    except torch.cuda.OutOfMemoryError:
-        logging.error('Detected OutOfMemoryError! '
-                      'Enabling checkpointing to reduce memory usage, but this slows down training. '
-                      'Consider enabling AMP (--amp) for fast and memory efficient training')
-        torch.cuda.empty_cache()
-        model.use_checkpointing()
-        train_model(
-            model=model,
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            learning_rate=args.lr,
-            device=device,
-            img_scale=args.scale,
-            val_percent=args.val / 100,
-            amp=args.amp
+        val_dice_score = val_score["dice"]
+        scheduler.step(val_dice_score)
+        wandb.log({"val_dice": val_dice_score})
+
+        # Save the best model weights
+        if val_dice_score > best_val_score:
+            best_val_score = val_dice_score
+            counter = 0  # Reset counter on improvement
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            best_checkpoint_path = checkpoint_dir / f"best_checkpoint.pth"
+            torch.save(model.state_dict(), best_checkpoint_path)
+            logging.info(f"New best model saved with Dice Score: {best_val_score:.4f}")
+        else:
+            counter += 1
+            logging.info(f"No improvement for {counter} epochs")
+
+        # Early stopping
+        if counter >= config["patience"]:
+            logging.info(
+                f"Stopping training after {epoch + 1} epochs without improvement."
+            )
+            break
+
+    logging.info(
+        "Training completed! Best Validation Dice Score: {:.4f}".format(best_val_score)
+    )
+
+    ## Test set evaluation
+    # Load best model weights
+    checkpoint_path = Path(config["checkpoint_dir"]) / "best_checkpoint.pth"
+    if checkpoint_path.exists():
+        model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+        logging.info(f"Loaded best model from {checkpoint_path}")
+    else:
+        logging.warning(
+            f"No checkpoint found at {checkpoint_path}. Using current model."
         )
+
+    test_loader = DataLoader(test_set, shuffle=False, **loader_args)
+    test_metrics = evaluate(
+        net=model,
+        dataloader=test_loader,
+        device=device,
+        amp=config["amp"],
+        log_images=True,
+        save_images=True,
+        run_name=wandb.run.name,
+        mode="test",
+    )
+    logging.info(f"Test Set Metrics: {test_metrics}")
+
+
+if __name__ == "__main__":
+    # Load configuration from YAML file
+
+    config = load_config("config.yaml")
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using device: {device}")
+
+    # Initialize model
+    model = UNet(n_channels=3, n_classes=1)
+    model.to(device)
+
+    train_model(model, device, config)
