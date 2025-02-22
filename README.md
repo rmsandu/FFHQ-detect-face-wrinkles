@@ -1,10 +1,10 @@
 ## Flickr-Faces-HQ-Wrinkle Dataset (FFHQ-Wrinkle)
 
-![Teaser image](./overview.png)
+![Teaser image](./teaser.png)
 
 ## Upgrades 22.02.2025
 
-This project is designed to perform facial wrinkle segmentation using a U-Net model. The main goal is to detect and segment wrinkles in high-resolution face images. The project leverages the FFHQ-Wrinkle dataset, which includes both manually labeled and weakly labeled wrinkle masks. The training code and the weights for the manually segmented wrinkles have been provided in this latest update.
+This project is designed to perform facial wrinkle segmentation using a U-Net model. The main goal is to detect and segment wrinkles in high-resolution face images. The project leverages the [FFHQ-Wrinkle dataset](https://github.com/labhai/ffhq-wrinkle-dataset) and [A Facial Wrinkle Segmentation Method Based on Unet++ Model](https://github.com/jun01pd2015/wrinkle_dataset), which includes both manually labeled and weakly labeled wrinkle masks. The training code and the weights for the manually segmented wrinkles have been provided in this latest update.
 
 ## Key Components
 
@@ -23,7 +23,21 @@ This project is designed to perform facial wrinkle segmentation using a U-Net mo
 3. **Training**:
 
    - **`train.py`**: Contains the training loop for the U-Net model. It handles data loading, augmentation, model training, validation, and checkpoint saving.
-   - **`losses.py`**: Defines the combined loss function used during training, which includes Dice loss and Focal loss.
+   - **`losses.py**`: Defines the combined loss function used during training, which includes Dice loss and Focal loss.
+
+   Configure Training Parameters:
+
+   Edit the **`config.yaml**` file to set the desired training parameters. [Weights&Biases](https://wandb.ai/site) is used for tracking.
+
+   The train.py file performs the following tasks:
+
+   - Initialize WandB for Experiment Tracking.
+   - Validate Data Directories.
+   - Create Dataset and Data Loaders.
+   - Initialize the Model, Optimizer, and Loss Function.
+   - Define the Training Loop and apply augmentations if needed
+   - Evaluate the Model on the Validation Set.
+   - Log Metrics and Save Checkpoints.
 
 4. **Evaluation**:
 
