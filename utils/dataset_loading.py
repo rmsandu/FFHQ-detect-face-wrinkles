@@ -117,6 +117,7 @@ def get_augmentation_transforms():
             A.Affine(
                 scale=(0.9, 1.1), translate_percent=(0.05, 0.1), rotate=(-15, 15), p=0.5
             ),  # Geometric changes
+            A.ElasticTransform(alpha=30, sigma=120 * 0.05, p=0.4),  # Distortion
             A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.5),  # Enhance contrast
             A.ColorJitter(brightness=0.2, contrast=0.2, p=0.5),  # Brightness/contrast
             A.GaussianBlur(blur_limit=(3, 5), p=0.5),  # Blur

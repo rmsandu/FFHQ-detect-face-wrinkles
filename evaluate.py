@@ -6,15 +6,29 @@ from pathlib import Path
 import wandb
 import numpy as np
 from utils.dice_score import dice_coeff, multiclass_dice_coeff
-from losses import CombinedLoss 
+from losses import CombinedLoss
 import matplotlib.pyplot as plt
-from torchmetrics.classification import BinaryPrecision, BinaryRecall, BinaryF1Score, BinaryAUROC
+from torchmetrics.classification import (
+    BinaryPrecision,
+    BinaryRecall,
+    BinaryF1Score,
+    BinaryAUROC,
+)
 from torch.utils.data import DataLoader
 
 
-
 @torch.inference_mode()
-def evaluate(net, dataloader, device, amp=True, log_images=False, epoch=0, save_images=False, run_name=None, mode="val"):
+def evaluate(
+    net,
+    dataloader,
+    device,
+    amp=True,
+    log_images=False,
+    epoch=0,
+    save_images=False,
+    run_name=None,
+    mode="val",
+):
     """
     Evaluates the performance of the model on the validation dataset.
 
@@ -51,22 +65,34 @@ def evaluate(net, dataloader, device, amp=True, log_images=False, epoch=0, save_
         save_dir = Path(f"{mode}/{run_name}/epoch_{epoch}")
         save_dir.mkdir(parents=True, exist_ok=True)
 
-    with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
-        for batch_idx, batch in enumerate(tqdm(dataloader, total=num_val_batches, desc='Validation round', unit='batch', leave=False)):
+    with torch.autocast(device.type if device.type != "mps" else "cpu", enabled=amp):
+        for batch_idx, batch in enumerate(
+            tqdm(
+                dataloader,
+                total=num_val_batches,
+                desc="Validation round",
+                unit="batch",
+                leave=False,
+            )
+        ):
             # Move inputs and labels to the correct device
-            images = batch['image'].to(device=device, dtype=torch.float32)
-            true_masks = batch['mask'].to(device=device, dtype=torch.float32)
+            images = batch["image"].to(device=device, dtype=torch.float32)
+            true_masks = batch["mask"].to(device=device, dtype=torch.float32)
 
             # Predict masks
             pred_masks = net(images)
 
             # Reshape masks for consistency
-            if pred_masks.dim() == 4 and pred_masks.size(1) == 1:  # Binary segmentation output
+            if (
+                pred_masks.dim() == 4 and pred_masks.size(1) == 1
+            ):  # Binary segmentation output
                 pred_masks = pred_masks.squeeze(1)  # Shape: (B, H, W)
-            if true_masks.dim() == 4 and true_masks.size(1) == 1:  # Handle mask with extra channel
+            if (
+                true_masks.dim() == 4 and true_masks.size(1) == 1
+            ):  # Handle mask with extra channel
                 true_masks = true_masks.squeeze(1)
 
-             # Compute Loss Components
+            # Compute Loss Components
             _, dice_loss_value, focal_loss_value = loss_fn(pred_masks, true_masks)
             total_dice_loss += dice_loss_value.item()
             total_focal_loss += focal_loss_value.item()
@@ -75,26 +101,34 @@ def evaluate(net, dataloader, device, amp=True, log_images=False, epoch=0, save_
             if net.n_classes == 1:
                 total_dice_score += _binary_dice_score(pred_masks, true_masks)
             else:
-                total_dice_score += _multiclass_dice_score(pred_masks, true_masks, net.n_classes)
-            
+                total_dice_score += _multiclass_dice_score(
+                    pred_masks, true_masks, net.n_classes
+                )
+
             pred_probs = torch.sigmoid(pred_masks)  # Convert logits to probabilities
             pred_labels = (pred_probs > 0.5).float()
             precision.update(pred_labels, true_masks)
             recall.update(pred_labels, true_masks)
             f1.update(pred_labels, true_masks)
-            auc.update(pred_probs, true_masks.long())  # AUC expects probabilities and integer labels
+            auc.update(
+                pred_probs, true_masks.long()
+            )  # AUC expects probabilities and integer labels
 
-             # Update metrics
+            # Update metrics
             precision.update(pred_labels, true_masks)
             recall.update(pred_labels, true_masks)
             f1.update(pred_labels, true_masks)
-            auc.update(pred_probs, true_masks.long())  # AUC expects probabilities and integer labels
+            auc.update(
+                pred_probs, true_masks.long()
+            )  # AUC expects probabilities and integer labels
 
             # Log and save images for the first batch
             if (log_images or save_images) and batch_idx == 0:
                 for i in range(min(len(images), 5)):  # Limit to 5 images per batch
                     img = images[i].cpu().permute(1, 2, 0).numpy()  # Convert to HWC
-                    img = (img - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
+                    img = (img - img.min()) / (
+                        img.max() - img.min()
+                    )  # Normalize to [0, 1]
                     true_mask = true_masks[i].cpu().numpy()
                     pred_mask = (torch.sigmoid(pred_masks[i]) > 0.5).cpu().numpy()
 
@@ -102,19 +136,21 @@ def evaluate(net, dataloader, device, amp=True, log_images=False, epoch=0, save_
                     overlay_img = create_overlay(img, true_mask, pred_mask)
 
                     if log_images:
-                        wandb.log({
-                            f"{mode.capitalize()}/Overlay_Image_{i}_Epoch_{epoch}": wandb.Image(
-                                overlay_img,
-                                caption="Overlay of Input, True Mask, and Prediction {mode} )"
-                            )
-                        })
+                        wandb.log(
+                            {
+                                f"{mode.capitalize()}/Overlay_Image_{i}_Epoch_{epoch}": wandb.Image(
+                                    overlay_img,
+                                    caption="Overlay of Input, True Mask, and Prediction {mode} )",
+                                )
+                            }
+                        )
 
                     if save_images:
                         # Save overlay locally
                         overlay_path = save_dir / f"overlay_{i}.png"
                         save_image(overlay_img, overlay_path)
 
-     # Compute final metrics
+    # Compute final metrics
     dice_score = total_dice_score / max(num_val_batches, 1)
     precision_score = precision.compute().item()
     recall_score = recall.compute().item()
@@ -122,18 +158,20 @@ def evaluate(net, dataloader, device, amp=True, log_images=False, epoch=0, save_
     auc_score = auc.compute().item()
     avg_dice_loss = total_dice_loss / max(num_val_batches, 1)
     avg_focal_loss = total_focal_loss / max(num_val_batches, 1)
-    
+
     # Log metrics
     if log_images:
-        wandb.log({
-            f"{mode}/dice": dice_score,
-            f"{mode}/dice": precision_score,
-            f"{mode}/recall": recall_score,
-            f"{mode}/f1":  f1_score,
-            f"{mode}/auc": auc_score,
-            f"{mode}/dice_loss": avg_dice_loss,
-            f"{mode}/focal_loss": avg_focal_loss
-        })
+        wandb.log(
+            {
+                f"{mode}/dice": dice_score,
+                f"{mode}/dice": precision_score,
+                f"{mode}/recall": recall_score,
+                f"{mode}/f1": f1_score,
+                f"{mode}/auc": auc_score,
+                f"{mode}/dice_loss": avg_dice_loss,
+                f"{mode}/focal_loss": avg_focal_loss,
+            }
+        )
 
     net.train()
 
@@ -144,7 +182,8 @@ def evaluate(net, dataloader, device, amp=True, log_images=False, epoch=0, save_
         "f1": f1_score,
         "auc": auc_score,
         "dice_loss": avg_dice_loss,
-        "focal_loss": avg_focal_loss
+        "focal_loss": avg_focal_loss,
+        "combined_loss": avg_dice_loss + avg_focal_loss,
     }
 
 
@@ -156,9 +195,10 @@ def _binary_dice_score(pred_masks, true_masks):
     pred_bin = (pred_probs > 0.5).float()  # Threshold probabilities
     if true_masks.dim() == 4:  # If true_masks has a channel dimension
         true_masks = true_masks.squeeze(1)
-    assert pred_bin.shape == true_masks.shape, f"Shape mismatch: {pred_bin.shape} vs {true_masks.shape}"
+    assert (
+        pred_bin.shape == true_masks.shape
+    ), f"Shape mismatch: {pred_bin.shape} vs {true_masks.shape}"
     return dice_coeff(pred_bin, true_masks, reduce_batch_first=False)
-
 
 
 def _multiclass_dice_score(pred_masks, true_masks, n_classes):
@@ -166,14 +206,19 @@ def _multiclass_dice_score(pred_masks, true_masks, n_classes):
     Compute Dice score for multiclass segmentation.
     Ignores the background class (index 0).
     """
-    assert true_masks.min() >= 0 and true_masks.max() < n_classes, \
-        f"True mask indices should be in range [0, {n_classes - 1}]"
-    
+    assert (
+        true_masks.min() >= 0 and true_masks.max() < n_classes
+    ), f"True mask indices should be in range [0, {n_classes - 1}]"
+
     true_masks = F.one_hot(true_masks, n_classes).permute(0, 3, 1, 2).float()
-    pred_masks = F.one_hot(pred_masks.argmax(dim=1), n_classes).permute(0, 3, 1, 2).float()
+    pred_masks = (
+        F.one_hot(pred_masks.argmax(dim=1), n_classes).permute(0, 3, 1, 2).float()
+    )
 
     # Exclude the background class (index 0) from the Dice score calculation
-    return multiclass_dice_coeff(pred_masks[:, 1:], true_masks[:, 1:], reduce_batch_first=False)
+    return multiclass_dice_coeff(
+        pred_masks[:, 1:], true_masks[:, 1:], reduce_batch_first=False
+    )
 
 
 def create_overlay(image, true_mask, pred_mask):

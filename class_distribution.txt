@@ -1,3 +1,0 @@
-Total Pixels: 262144000
-Wrinkle Pixels: 1746637 (0.67%)
-Background Pixels: 260397363 (99.33%)

@@ -40,7 +40,6 @@ def train_model(model, device, config):
     batch_size = config["batch_size"]
     learning_rate = config["learning_rate"]
     val_percent = config["val_percent"]
-    val_test = config["test_percent"]
     weight_decay = config["weight_decay"]
     gradient_clipping = config["gradient_clipping"]
     amp = config["amp"]
@@ -90,11 +89,11 @@ def train_model(model, device, config):
     analyze_class_imbalance(DataLoader(dataset, batch_size=batch_size, shuffle=False))
     # Split dataset
     n_val = int(len(dataset) * val_percent)
-    n_test = int(len(dataset) * val_test)  # 10% for testing
-    n_train = len(dataset) - n_val - n_test
+    # n_test = int(len(dataset) * val_test)  # 10% for testing
+    n_train = len(dataset) - n_val
 
-    train_set, val_set, test_set = random_split(
-        dataset, [n_train, n_val, n_test], generator=torch.Generator().manual_seed(42)
+    train_set, val_set = random_split(
+        dataset, [n_train, n_val], generator=torch.Generator().manual_seed(42)
     )
 
     # DataLoaders
@@ -151,6 +150,7 @@ def train_model(model, device, config):
                         )
                         wandb.log(
                             {
+                                "combined_loss": loss.item(),
                                 "train_dice_loss": dice_loss_value.item(),
                                 "train_focal_loss": focal_loss_value.item(),
                             }
@@ -193,6 +193,18 @@ def train_model(model, device, config):
         scheduler.step(val_dice_score)
         wandb.log({"val_dice": val_dice_score})
 
+        wandb.log(
+            {
+                "epoch": epoch + 1,
+                "learning_rate": optimizer.param_groups[0]["lr"],
+                "val_loss": val_score["val_loss"],
+                "val_accuracy": val_score["val_accuracy"],
+                "val_precision": val_score["val_precision"],
+                "val_recall": val_score["val_recall"],
+                "val_f1_score": val_score["val_f1_score"],
+            }
+        )
+
         # Save the best model weights
         if val_dice_score > best_val_score:
             best_val_score = val_dice_score
@@ -215,30 +227,6 @@ def train_model(model, device, config):
     logging.info(
         "Training completed! Best Validation Dice Score: {:.4f}".format(best_val_score)
     )
-
-    ## Test set evaluation
-    # Load best model weights
-    checkpoint_path = Path(config["checkpoint_dir"]) / "best_checkpoint.pth"
-    if checkpoint_path.exists():
-        model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-        logging.info(f"Loaded best model from {checkpoint_path}")
-    else:
-        logging.warning(
-            f"No checkpoint found at {checkpoint_path}. Using current model."
-        )
-
-    test_loader = DataLoader(test_set, shuffle=False, **loader_args)
-    test_metrics = evaluate(
-        net=model,
-        dataloader=test_loader,
-        device=device,
-        amp=config["amp"],
-        log_images=True,
-        save_images=True,
-        run_name=wandb.run.name,
-        mode="test",
-    )
-    logging.info(f"Test Set Metrics: {test_metrics}")
 
 
 if __name__ == "__main__":

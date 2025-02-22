@@ -1,14 +1,15 @@
 # config.yaml
-epochs: 6
-batch_size: 2
+epochs: 100
+batch_size: 16
 learning_rate: 0.0001
-val_percent: 0.1
-test_percent: 0.1
+val_percent: 0.2
+test_percent: 0
 amp: true
+drop_out: 0.2
 weight_decay: 0.0004
 gradient_clipping: 1.0
-patience: 5
-augmentation: False
+patience: 10
+augmentation: True
 loss_function:
   name: "CombinedLoss" # Options: "CombinedLoss", "BCEWithLogitsLoss"
   alpha: 0.7 # For CombinedLoss: Weight for Dice Loss
