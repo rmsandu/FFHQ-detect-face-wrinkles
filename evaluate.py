@@ -1,20 +1,20 @@
 import os
 import torch
+from torch import Tensor
 import torch.nn.functional as F
-from tqdm import tqdm
-from pathlib import Path
-import wandb
-import numpy as np
-from utils.dice_score import dice_coeff, multiclass_dice_coeff
-from losses import CombinedLoss
-import matplotlib.pyplot as plt
 from torchmetrics.classification import (
     BinaryPrecision,
     BinaryRecall,
     BinaryF1Score,
     BinaryAUROC,
+    BinaryJaccardIndex,
 )
-from torch.utils.data import DataLoader
+from tqdm import tqdm
+from pathlib import Path
+import wandb
+import numpy as np
+import matplotlib.pyplot as plt
+from losses import CombinedLoss
 
 
 @torch.inference_mode()
@@ -58,6 +58,7 @@ def evaluate(
     recall = BinaryRecall().to(device)
     f1 = BinaryF1Score().to(device)
     auc = BinaryAUROC().to(device)
+    iou = BinaryJaccardIndex().to(device)
     loss_fn = CombinedLoss(alpha=0.7, gamma=2.0, focal_alpha=0.25)
     # Set up local directory for saving images
     if save_images:
@@ -94,33 +95,24 @@ def evaluate(
 
             # Compute Loss Components
             _, dice_loss_value, focal_loss_value = loss_fn(pred_masks, true_masks)
-            total_dice_loss += dice_loss_value.item()
-            total_focal_loss += focal_loss_value.item()
+            total_dice_loss += dice_loss_value.detach().cpu().item()
+            total_focal_loss += focal_loss_value.detach().cpu().item()
 
             # Compute Dice score
             if net.n_classes == 1:
                 total_dice_score += _binary_dice_score(pred_masks, true_masks)
             else:
-                total_dice_score += _multiclass_dice_score(
-                    pred_masks, true_masks, net.n_classes
-                )
+                # TODO: Implement multiclass dice score
+                print("Multiclass dice score not implemented yet")
+                pass
 
             pred_probs = torch.sigmoid(pred_masks)  # Convert logits to probabilities
             pred_labels = (pred_probs > 0.5).float()
             precision.update(pred_labels, true_masks)
             recall.update(pred_labels, true_masks)
             f1.update(pred_labels, true_masks)
-            auc.update(
-                pred_probs, true_masks.long()
-            )  # AUC expects probabilities and integer labels
-
-            # Update metrics
-            precision.update(pred_labels, true_masks)
-            recall.update(pred_labels, true_masks)
-            f1.update(pred_labels, true_masks)
-            auc.update(
-                pred_probs, true_masks.long()
-            )  # AUC expects probabilities and integer labels
+            auc.update(pred_probs, true_masks.long())
+            iou.update(pred_labels, true_masks)
 
             # Log and save images for the first batch
             if (log_images or save_images) and batch_idx == 0:
@@ -149,6 +141,7 @@ def evaluate(
                         # Save overlay locally
                         overlay_path = save_dir / f"overlay_{i}.png"
                         save_image(overlay_img, overlay_path)
+                        np.save(save_dir / f"pred_mask_{i}.npy", pred_mask)
 
     # Compute final metrics
     dice_score = total_dice_score / max(num_val_batches, 1)
@@ -156,6 +149,8 @@ def evaluate(
     recall_score = recall.compute().item()
     f1_score = f1.compute().item()
     auc_score = auc.compute().item()
+    iou_score = iou.compute().item()
+
     avg_dice_loss = total_dice_loss / max(num_val_batches, 1)
     avg_focal_loss = total_focal_loss / max(num_val_batches, 1)
 
@@ -164,12 +159,14 @@ def evaluate(
         wandb.log(
             {
                 f"{mode}/dice": dice_score,
-                f"{mode}/dice": precision_score,
+                f"{mode}/precision": precision_score,
                 f"{mode}/recall": recall_score,
                 f"{mode}/f1": f1_score,
                 f"{mode}/auc": auc_score,
                 f"{mode}/dice_loss": avg_dice_loss,
                 f"{mode}/focal_loss": avg_focal_loss,
+                f"{mode}/iou": iou_score,
+                f"{mode}/combined_val_loss": avg_dice_loss + avg_focal_loss,
             }
         )
 
@@ -181,44 +178,72 @@ def evaluate(
         "recall": recall_score,
         "f1": f1_score,
         "auc": auc_score,
+        "iou": iou_score,
         "dice_loss": avg_dice_loss,
         "focal_loss": avg_focal_loss,
-        "combined_loss": avg_dice_loss + avg_focal_loss,
+        "combined_val_loss": avg_dice_loss + avg_focal_loss,
     }
 
 
-def _binary_dice_score(pred_masks, true_masks):
+def dice_coeff(
+    input: Tensor,
+    target: Tensor,
+    reduce_batch_first: bool = False,
+    epsilon: float = 1e-6,
+) -> Tensor:
+    """
+    Compute the Dice coefficient for binary segmentation.
+
+    Args:
+        input: Predicted tensor of shape (N, H, W) or (N, C, H, W).
+        target: Ground truth tensor of the same shape as `input`.
+        reduce_batch_first: Whether to average the Dice score across the batch.
+        epsilon: Small value to prevent division by zero.
+
+    Returns:
+        Dice coefficient as a Tensor.
+    """
+    assert input.size() == target.size(), "Input and target must have the same shape"
+    sum_dim = (-1, -2) if input.dim() == 3 or not reduce_batch_first else (-1, -2, -3)
+
+    # Compute intersection and union
+    inter = 2 * (input * target).sum(dim=sum_dim)
+    sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
+    sets_sum = torch.where(
+        sets_sum == 0, inter, sets_sum
+    )  # Handle edge cases where sets_sum is zero
+
+    dice = (inter + epsilon) / (sets_sum + epsilon)
+    return dice.mean()
+
+
+def _binary_dice_score(pred_masks: Tensor, true_masks: Tensor) -> Tensor:
     """
     Compute Dice score for binary segmentation.
+
+    Args:
+        pred_masks: Logits or probabilities (before or after sigmoid).
+        true_masks: Binary ground truth masks.
+
+    Returns:
+        Dice score as a Tensor.
+
     """
     pred_probs = torch.sigmoid(pred_masks)  # Convert logits to probabilities
-    pred_bin = (pred_probs > 0.5).float()  # Threshold probabilities
-    if true_masks.dim() == 4:  # If true_masks has a channel dimension
-        true_masks = true_masks.squeeze(1)
+    pred_bin = (pred_probs > 0.5).float()  # Threshold probabilities to get binary mask
+
+    # Ensure masks have the same shape and remove unnecessary dimensions
+    if true_masks.dim() == 4 and true_masks.size(1) == 1:
+        true_masks = true_masks.squeeze(1)  # (B, H, W)
+
+    if pred_bin.dim() == 4 and pred_bin.size(1) == 1:
+        pred_bin = pred_bin.squeeze(1)
+
     assert (
         pred_bin.shape == true_masks.shape
     ), f"Shape mismatch: {pred_bin.shape} vs {true_masks.shape}"
-    return dice_coeff(pred_bin, true_masks, reduce_batch_first=False)
 
-
-def _multiclass_dice_score(pred_masks, true_masks, n_classes):
-    """
-    Compute Dice score for multiclass segmentation.
-    Ignores the background class (index 0).
-    """
-    assert (
-        true_masks.min() >= 0 and true_masks.max() < n_classes
-    ), f"True mask indices should be in range [0, {n_classes - 1}]"
-
-    true_masks = F.one_hot(true_masks, n_classes).permute(0, 3, 1, 2).float()
-    pred_masks = (
-        F.one_hot(pred_masks.argmax(dim=1), n_classes).permute(0, 3, 1, 2).float()
-    )
-
-    # Exclude the background class (index 0) from the Dice score calculation
-    return multiclass_dice_coeff(
-        pred_masks[:, 1:], true_masks[:, 1:], reduce_batch_first=False
-    )
+    return dice_coeff(pred_bin, true_masks, reduce_batch_first=True)
 
 
 def create_overlay(image, true_mask, pred_mask):

@@ -26,11 +26,11 @@ The pre-trained face weights can be downloaded from [here](https://drive.google.
 3. **Training**:
 
    - **`train.py`**: Contains the training loop for the U-Net model. It handles data loading, augmentation, model training, validation, and checkpoint saving.
-   - **`losses.py**`: Defines the combined loss function used during training, which includes Dice loss and Focal loss.
+   - **`losses.py`**`: Defines the combined loss function used during training, which includes Dice loss and Focal loss.
 
    Configure Training Parameters:
 
-   Edit the **`config.yaml**` file to set the desired training parameters. [Weights&Biases](https://wandb.ai/site) is used for tracking.
+   Edit the **`config.yaml`** file to set the desired training parameters. [Weights&Biases](https://wandb.ai/site) is used for tracking.
 
    The train.py file performs the following tasks:
 
@@ -39,18 +39,19 @@ The pre-trained face weights can be downloaded from [here](https://drive.google.
    - Create Dataset and Data Loaders.
    - Initialize the Model, Optimizer, and Loss Function.
    - Define the Training Loop and apply augmentations if needed
-   - Evaluate the Model on the Validation Set.
+   - Calls the Evaluation of the Model on the Validation Set.
    - Log Metrics and Save Checkpoints.
 
 4. **Evaluation**:
 
-   - **`evaluate.py`**: Evaluates the trained model on the validation dataset. It computes various metrics such as Dice score, precision, recall, F1 score, and AUROC. It also logs and saves images for visualization.
+   - **`evaluate.py`**: Evaluates the trained model on the validation dataset. It computes various metrics such as Dice score, precision, recall, F1 score, and AUC. It also logs and saves images for visualization. For Dice score, a combined loss has been used.
 
 5. **Utilities**:
    - **`utils/dataset_loading.py`**: Defines the custom dataset class for loading images and masks, and provides data augmentation transforms.
    - **`utils/dataset_metrics.py`**: Analyzes class imbalance in the dataset.
-   - **`utils/dice_score.py`**: Computes Dice coefficients for binary and multiclass segmentation.
    - **`utils/sanity_check_dimensions.py`**: Checks the dimensions of images and masks to ensure consistency.
+
+---
 
 FFHQ-Wrinkle is an extension of the [FFHQ (Flickr-Faces-HQ)](https://github.com/NVlabs/ffhq-dataset) dataset, specifically designed to include additional features related to facial wrinkles. This dataset aims to support research and development in facial recognition, aging simulation, and other related fields.
 

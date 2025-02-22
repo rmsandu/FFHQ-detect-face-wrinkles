@@ -122,8 +122,6 @@ def train_model(model, device, config):
 
     best_val_score = 0.0  # Track the best validation Dice score
     counter = 0  # Number of epochs without improvement
-    # Initialize the combined loss
-    loss_fn = CombinedLoss(alpha=0.7, gamma=2.0, focal_alpha=0.25)
 
     # Training Loop
     for epoch in range(epochs):
@@ -163,7 +161,9 @@ def train_model(model, device, config):
                 grad_scaler.scale(loss).backward()
 
                 # Gradient Clipping
-                grad_scaler.unscale_(optimizer)
+                if amp:
+                    grad_scaler.unscale_(optimizer)
+
                 torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clipping)
 
                 grad_scaler.step(optimizer)
@@ -191,18 +191,10 @@ def train_model(model, device, config):
         )
         val_dice_score = val_score["dice"]
         scheduler.step(val_dice_score)
-        wandb.log({"val_dice": val_dice_score})
 
+        # Log epoch number and current learning rate
         wandb.log(
-            {
-                "epoch": epoch + 1,
-                "learning_rate": optimizer.param_groups[0]["lr"],
-                "val_loss": val_score["val_loss"],
-                "val_accuracy": val_score["val_accuracy"],
-                "val_precision": val_score["val_precision"],
-                "val_recall": val_score["val_recall"],
-                "val_f1_score": val_score["val_f1_score"],
-            }
+            {"epoch": epoch + 1, "learning_rate": optimizer.param_groups[0]["lr"]}
         )
 
         # Save the best model weights

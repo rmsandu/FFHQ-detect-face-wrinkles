@@ -71,12 +71,18 @@ class WrinkleDataset(Dataset):
         # print("mask shape before loading", mask.shape)
         # print("image shape before loading", image.shape)
 
+        height, width = image.shape[:2]
+        if mask.shape[:2] != (height, width):
+            mask = np.resize(mask, (height, width))
+
         # Apply transforms if provided
         if self.transform:
             augmented = self.transform(image=image, mask=mask)
             image, mask = augmented["image"], augmented["mask"]
 
-        # print(f"After transform -> Image shape: {image.shape}, Mask shape: {mask.shape}")
+        # print(
+        #    f"After transform -> Image shape: {image.shape}, Mask shape: {mask.shape}"
+        # )
 
         # Ensure tensors are returned
         if isinstance(image, np.ndarray):
@@ -113,6 +119,7 @@ def get_augmentation_transforms():
     """Returns a set of augmentation transforms for training."""
     return A.Compose(
         [
+            A.Resize(height=512, width=512),  # Resize to model input size
             A.HorizontalFlip(p=0.5),  # Flip horizontally
             A.Affine(
                 scale=(0.9, 1.1), translate_percent=(0.05, 0.1), rotate=(-15, 15), p=0.5
@@ -125,7 +132,6 @@ def get_augmentation_transforms():
             A.Normalize(
                 mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)
             ),  # Normalize images
-            A.Resize(height=512, width=512),  # Resize to model input size
             ToTensorV2(),  # Convert to PyTorch tensors
         ],
         additional_targets={"mask": "mask"},
