@@ -6,6 +6,9 @@
 
 This project is designed to perform facial wrinkle segmentation using a U-Net model. The main goal is to detect and segment wrinkles in high-resolution face images. The project leverages the [FFHQ-Wrinkle dataset](https://github.com/labhai/ffhq-wrinkle-dataset) and [A Facial Wrinkle Segmentation Method Based on Unet++ Model](https://github.com/jun01pd2015/wrinkle_dataset), which includes both manually labeled and weakly labeled wrinkle masks. The training code and the weights for the manually segmented wrinkles have been provided in this latest update.
 
+I modified the **`face_masking.py`** to a new version of **`face_parsing_extraction.py`** usign BisNET to crop faces given an input folder and provided face-parsed labels for the face images corresponding to the manual wrinkle labels as 512x512 numpy arrays, which were obtained using [face-parsing.PyTorch](https://github.com/zllrunning/face-parsing.PyTorch) Specifically, all areas except for the face and the nose. This way the user can create new manual labels and generate new face-parsed images.
+The pre-trained face weights can be downloaded from [here](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view) and saved in "res/cp/".
+
 ## Key Components
 
 1. **Dataset Preparation**:
