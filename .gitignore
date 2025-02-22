@@ -27,7 +27,7 @@ build/
 # Virtual environment
 .venv/
 
-# Data files
+# Image  files
 data/
 *.csv
 *.h5
@@ -59,4 +59,3 @@ validation/
 # Photos
 *.jpg
 *.jpeg
-*.png
