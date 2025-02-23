@@ -4,10 +4,21 @@
 
 ## Upgrades 22.02.2025
 
-This project is designed to perform facial wrinkle segmentation using a U-Net model. The main goal is to detect and segment wrinkles in high-resolution face images. The project leverages the [FFHQ-Wrinkle dataset](https://github.com/labhai/ffhq-wrinkle-dataset) and [A Facial Wrinkle Segmentation Method Based on Unet++ Model](https://github.com/jun01pd2015/wrinkle_dataset), which includes both manually labeled and weakly labeled wrinkle masks. The training code and the weights for the manually segmented wrinkles have been provided in this latest update.
+This project is designed to perform facial wrinkle segmentation using a U-Net model. The main goal is to segment wrinkles in high-resolution face images.This is a non-trivial task due to huge class imbalance (wrinkles vs. non-wrinkles), manual annotation of wrinkles, having commong agreement over what's even a wrinkle.
+
+Here are the specs I trained the model on: Total Pixels: 477102080
+Wrinkle Pixels: 131385 (0.03%)
+Background Pixels: 476970695 (99.97%)
+
+The project leverages the [FFHQ-Wrinkle dataset](https://github.com/labhai/ffhq-wrinkle-dataset) and [A Facial Wrinkle Segmentation Method Based on Unet++ Model](https://github.com/jun01pd2015/wrinkle_dataset), which includes both manually labeled and weakly labeled wrinkle masks. However, I have only used manually labeled wrinkle masks from both datasets. The training code and the weights for the manually segmented wrinkles have been provided in this latest update.
 
 I modified the **`face_masking.py`** to a new version of **`face_parsing_extraction.py`** usign BisNET to crop faces given an input folder and provided face-parsed labels for the face images corresponding to the manual wrinkle labels as 512x512 numpy arrays, which were obtained using [face-parsing.PyTorch](https://github.com/zllrunning/face-parsing.PyTorch) Specifically, all areas except for the face and the nose. This way the user can create new manual labels and generate new face-parsed images.
-The pre-trained face weights can be downloaded from [here](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view) and saved in "res/cp/".
+The pre-trained face weights can be downloaded from [here](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view) . The pre-trained wrinkle weights can be downloaded from [here](https://drive.google.com/file/d/107XhA6h_hRtt-1OMQ8rjtUxhqrjXyv08/view?usp=sharing). Both ".pth" fikes should be saved in "res/cp/".
+
+## Demo
+
+Running the demo can be done with [Gradio](https://www.gradio.app/). The demo can be run with **`app.py`**, after the weights have been downloaded in the "res/cp/" folder.
+![Gradio demo image](./demo_screenshot.png)
 
 ## Key Components
 
@@ -30,7 +41,7 @@ The pre-trained face weights can be downloaded from [here](https://drive.google.
 
    Configure Training Parameters:
 
-   Edit the **`config.yaml`** file to set the desired training parameters. [Weights&Biases](https://wandb.ai/site) is used for tracking.
+   Edit the **`config.yaml`** file to set the desired training parameters. [Weights&Biases](https://wandb.ai/site) is used for tracking. I haven't optimized the training, since this is beyond the scope of this repostitory.
 
    The train.py file performs the following tasks:
 
@@ -38,13 +49,18 @@ The pre-trained face weights can be downloaded from [here](https://drive.google.
    - Validate Data Directories.
    - Create Dataset and Data Loaders.
    - Initialize the Model, Optimizer, and Loss Function.
-   - Define the Training Loop and apply augmentations if needed
+   - Define the Training Loop and apply augmentations (optional)
    - Calls the Evaluation of the Model on the Validation Set.
-   - Log Metrics and Save Checkpoints.
+   - Log Metrics with W&B and Save Checkpoints.
 
 4. **Evaluation**:
 
-   - **`evaluate.py`**: Evaluates the trained model on the validation dataset. It computes various metrics such as Dice score, precision, recall, F1 score, and AUC. It also logs and saves images for visualization. For Dice score, a combined loss has been used.
+   - **`evaluate.py**`: Evaluates the trained model on the validation dataset. It computes various metrics such as Dice score, precision, recall, F1 score, and AUC. It also logs and saves images for visualization. For Dice score, a combined loss of average Dice Loss + average Focal Loss has been used due to the high class-imbalace. This loss function balances class imbalance and model confidence by penalizing incorrect predictions more aggressively.
+
+   The **`losses.py**` script implements CombinedLoss, which is a weighted sum of:
+
+   - Dice Loss (handles class imbalance, improves segmentation performance).
+   - Focal Loss (focuses on hard-to-classify pixels).
 
 5. **Utilities**:
    - **`utils/dataset_loading.py`**: Defines the custom dataset class for loading images and masks, and provides data augmentation transforms.
@@ -53,6 +69,7 @@ The pre-trained face weights can be downloaded from [here](https://drive.google.
 
 ---
 
+More info about the FFHQ-Wrinkle dataset project, please check their repo page for more info, this was just copy & pasted from them.
 FFHQ-Wrinkle is an extension of the [FFHQ (Flickr-Faces-HQ)](https://github.com/NVlabs/ffhq-dataset) dataset, specifically designed to include additional features related to facial wrinkles. This dataset aims to support research and development in facial recognition, aging simulation, and other related fields.
 
 If you use this dataset for your research, please cite our paper:
@@ -98,7 +115,7 @@ All data is hosted on Google Drive:
 
 ## Usage
 
-All scripts must be run from the root folder of the repository (ffhq-wrinkle-dataset).
+All scripts must be run from the root folder of the repository (ffhq-detect-wrinkles).
 
 ### Wrinkle label download
 
@@ -118,18 +135,15 @@ The folder structure after following the instructions is as follows:
 {base_folder}/
 ├── manual_wrinkle_masks/
 │   ├── 00001.png
-│   ├── 00011.png
 │   ├── ...
 │   └── 21035.png
 └── weak_wrinkle_masks/
     ├── 00000/
     │   ├── 00000.png
-    │   ├── 00001.png
     │   ├── ...
     │   └── 00999.png
     ├── 01000/
     │   ├── 01000.png
-    │   ├── 01001.png
     │   ├── ...
     │   └── 01999.png
     ├── ...
@@ -151,13 +165,11 @@ The folder structure after downloading face images is as follows:
 ├── images1024x1024/
 │   ├── 00000/
 │   │   ├── 00000.png
-│   │   ├── 00001.png
 │   │   ├── ...
 │   │   └── 00999.png
 │   ├── ...
 │   └── 49000/
 │       ├── 49000.png
-│       ├── 49001.png
 │       ├── ...
 │       └── 49999.png
 ├── manual_wrinkle_masks/
@@ -168,13 +180,11 @@ The folder structure after downloading face images is as follows:
 └── weak_wrinkle_masks/
     ├── 00000/
     │   ├── 00000.png
-    │   ├── 00001.png
     │   ├── ...
     │   └── 00999.png
     ├── ...
     └── 49000/
         ├── 49000.png
-        ├── 49001.png
         ├── ...
         └── 49999.png
 ```
@@ -251,5 +261,6 @@ The folder structure after the instructions is as follows:
 
 ## Todos
 
-- [ ] Publish pre-trained model (U-Net, SwinUNETR) weights.
-- [ ] Publish training codes.
+- [x] Publish pre-trained model (U-Net) weights.
+- [x] Publish training codes.
+- [ ] Move demo to HuggingFace Spaces

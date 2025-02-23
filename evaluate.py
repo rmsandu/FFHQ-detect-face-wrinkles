@@ -95,8 +95,8 @@ def evaluate(
 
             # Compute Loss Components
             _, dice_loss_value, focal_loss_value = loss_fn(pred_masks, true_masks)
-            total_dice_loss += dice_loss_value.detach().cpu().item()
-            total_focal_loss += focal_loss_value.detach().cpu().item()
+            total_dice_loss += dice_loss_value.detach()
+            total_focal_loss += focal_loss_value.detach()
 
             # Compute Dice score
             if net.n_classes == 1:
@@ -158,15 +158,15 @@ def evaluate(
     if log_images:
         wandb.log(
             {
-                f"{mode}/dice": dice_score,
-                f"{mode}/precision": precision_score,
-                f"{mode}/recall": recall_score,
+                f"{mode}/dice_score": dice_score,
+                f"{mode}/precision_score": precision_score,
+                f"{mode}/recall_score": recall_score,
                 f"{mode}/f1": f1_score,
                 f"{mode}/auc": auc_score,
                 f"{mode}/dice_loss": avg_dice_loss,
                 f"{mode}/focal_loss": avg_focal_loss,
                 f"{mode}/iou": iou_score,
-                f"{mode}/combined_val_loss": avg_dice_loss + avg_focal_loss,
+                f"{mode}/total_combined_loss": avg_dice_loss + avg_focal_loss,
             }
         )
 
@@ -181,7 +181,7 @@ def evaluate(
         "iou": iou_score,
         "dice_loss": avg_dice_loss,
         "focal_loss": avg_focal_loss,
-        "combined_val_loss": avg_dice_loss + avg_focal_loss,
+        "total_combined_val_loss": avg_dice_loss + avg_focal_loss,
     }
 
 

@@ -7,6 +7,8 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import torch
 
+os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
+
 
 class WrinkleDataset(Dataset):
     """Custom dataset for loading wrinkle images and masks."""
@@ -127,11 +129,8 @@ def get_augmentation_transforms():
             A.ElasticTransform(alpha=30, sigma=120 * 0.05, p=0.4),  # Distortion
             A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.5),  # Enhance contrast
             A.ColorJitter(brightness=0.2, contrast=0.2, p=0.5),  # Brightness/contrast
-            A.GaussianBlur(blur_limit=(3, 5), p=0.5),  # Blur
-            A.GaussNoise(var_limit=(10.0, 50.0), p=0.5),  # Noise
-            A.Normalize(
-                mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)
-            ),  # Normalize images
+            A.GaussianBlur(blur_limit=(5, 5), p=1.0),  # Fixed Blur
+            A.GaussNoise(var_limit=(50.0, 100.0), p=0.5),  # Add noise
             ToTensorV2(),  # Convert to PyTorch tensors
         ],
         additional_targets={"mask": "mask"},

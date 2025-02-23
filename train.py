@@ -86,7 +86,7 @@ def train_model(model, device, config):
     )
 
     # Analyze class imbalance
-    analyze_class_imbalance(DataLoader(dataset, batch_size=batch_size, shuffle=False))
+    # analyze_class_imbalance(DataLoader(dataset, batch_size=batch_size, shuffle=False))
     # Split dataset
     n_val = int(len(dataset) * val_percent)
     # n_test = int(len(dataset) * val_test)  # 10% for testing
@@ -108,9 +108,12 @@ def train_model(model, device, config):
     check_dimensions_and_sanity(train_loader, device=device)
     # Optimizer, Scheduler, and Loss
     optimizer = optim.AdamW(
-        model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay,
+        betas=(0.9, 0.999),
     )
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, "max", patience=5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, "max", patience=10)
 
     # Mixed Precision
     grad_scaler = torch.amp.GradScaler(enabled=amp)
