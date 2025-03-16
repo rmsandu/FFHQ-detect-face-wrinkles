@@ -1,19 +1,22 @@
 import os
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from torch import Tensor
 from torchmetrics.classification import (
+    BinaryAUROC,
+    BinaryF1Score,
+    BinaryJaccardIndex,
     BinaryPrecision,
     BinaryRecall,
-    BinaryF1Score,
-    BinaryAUROC,
-    BinaryJaccardIndex,
 )
 from tqdm import tqdm
-from pathlib import Path
 import wandb
-import numpy as np
-import matplotlib.pyplot as plt
+
+# Local imports
 from losses import CombinedLoss
 
 
@@ -49,17 +52,21 @@ def evaluate(
     """
     net.eval()
     num_val_batches = len(dataloader)
-    total_dice_score = 0.0
-    total_dice_loss = 0.0
-    total_focal_loss = 0.0
 
-    # Initialize metrics
-    precision = BinaryPrecision().to(device)
-    recall = BinaryRecall().to(device)
-    f1 = BinaryF1Score().to(device)
-    auc = BinaryAUROC().to(device)
-    iou = BinaryJaccardIndex().to(device)
-    loss_fn = CombinedLoss(alpha=0.7, gamma=2.0, focal_alpha=0.25)
+    # Initialize metrics with proper device
+    metrics = {
+        "precision": BinaryPrecision().to(device),
+        "recall": BinaryRecall().to(device),
+        "f1": BinaryF1Score().to(device),
+        "auc": BinaryAUROC().to(device),
+        "iou": BinaryJaccardIndex().to(device),
+    }
+
+    # Initialize loss tracking
+    losses = {"dice_loss": 0.0, "focal_loss": 0.0, "combined_loss": 0.0}
+
+    loss_fn = CombinedLoss(alpha=0.7, gamma=2.0, focal_alpha=0.25).to(device)
+
     # Set up local directory for saving images
     if save_images:
         run_name = run_name or wandb.run.name if wandb.run else "default_run"
@@ -67,122 +74,69 @@ def evaluate(
         save_dir.mkdir(parents=True, exist_ok=True)
 
     with torch.autocast(device.type if device.type != "mps" else "cpu", enabled=amp):
-        for batch_idx, batch in enumerate(
-            tqdm(
-                dataloader,
-                total=num_val_batches,
-                desc="Validation round",
-                unit="batch",
-                leave=False,
-            )
-        ):
-            # Move inputs and labels to the correct device
+        for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"{mode} round")):
+            # Move data to device
             images = batch["image"].to(device=device, dtype=torch.float32)
             true_masks = batch["mask"].to(device=device, dtype=torch.float32)
 
-            # Predict masks
+            # Forward pass
             pred_masks = net(images)
 
-            # Reshape masks for consistency
-            if (
-                pred_masks.dim() == 4 and pred_masks.size(1) == 1
-            ):  # Binary segmentation output
-                pred_masks = pred_masks.squeeze(1)  # Shape: (B, H, W)
-            if (
-                true_masks.dim() == 4 and true_masks.size(1) == 1
-            ):  # Handle mask with extra channel
-                true_masks = true_masks.squeeze(1)
+            # Ensure proper shapes
+            pred_masks = (
+                pred_masks.squeeze(1)
+                if pred_masks.dim() == 4 and pred_masks.size(1) == 1
+                else pred_masks
+            )
+            true_masks = (
+                true_masks.squeeze(1)
+                if true_masks.dim() == 4 and true_masks.size(1) == 1
+                else true_masks
+            )
 
-            # Compute Loss Components
-            _, dice_loss_value, focal_loss_value = loss_fn(pred_masks, true_masks)
-            total_dice_loss += dice_loss_value.detach()
-            total_focal_loss += focal_loss_value.detach()
+            # Compute losses
+            combined_loss, dice_loss, focal_loss = loss_fn(pred_masks, true_masks)
+            losses["combined_loss"] += combined_loss.item()
+            losses["dice_loss"] += dice_loss.item()
+            losses["focal_loss"] += focal_loss.item()
 
-            # Compute Dice score
-            if net.n_classes == 1:
-                total_dice_score += _binary_dice_score(pred_masks, true_masks)
-            else:
-                # TODO: Implement multiclass dice score
-                print("Multiclass dice score not implemented yet")
-                pass
+            # Get predictions for metrics
+            pred_probs = torch.sigmoid(pred_masks)
+            pred_binary = (pred_probs > 0.5).float()
 
-            pred_probs = torch.sigmoid(pred_masks)  # Convert logits to probabilities
-            pred_labels = (pred_probs > 0.5).float()
-            precision.update(pred_labels, true_masks)
-            recall.update(pred_labels, true_masks)
-            f1.update(pred_labels, true_masks)
-            auc.update(pred_probs, true_masks.long())
-            iou.update(pred_labels, true_masks)
+            # Update metrics
+            for name, metric in metrics.items():
+                if name == "auc":
+                    metric.update(pred_probs, true_masks.long())
+                else:
+                    metric.update(pred_binary, true_masks)
 
-            # Log and save images for the first batch
+            # Handle image logging
             if (log_images or save_images) and batch_idx == 0:
-                for i in range(min(len(images), 5)):  # Limit to 5 images per batch
-                    img = images[i].cpu().permute(1, 2, 0).numpy()  # Convert to HWC
-                    img = (img - img.min()) / (
-                        img.max() - img.min()
-                    )  # Normalize to [0, 1]
-                    true_mask = true_masks[i].cpu().numpy()
-                    pred_mask = (torch.sigmoid(pred_masks[i]) > 0.5).cpu().numpy()
-
-                    # Create overlay
-                    overlay_img = create_overlay(img, true_mask, pred_mask)
-
-                    if log_images:
-                        wandb.log(
-                            {
-                                f"{mode.capitalize()}/Overlay_Image_{i}_Epoch_{epoch}": wandb.Image(
-                                    overlay_img,
-                                    caption="Overlay of Input, True Mask, and Prediction {mode} )",
-                                )
-                            }
-                        )
-
-                    if save_images:
-                        # Save overlay locally
-                        overlay_path = save_dir / f"overlay_{i}.png"
-                        save_image(overlay_img, overlay_path)
-                        np.save(save_dir / f"pred_mask_{i}.npy", pred_mask)
+                _log_images(
+                    images,
+                    true_masks,
+                    pred_binary,
+                    epoch,
+                    mode,
+                    save_dir,
+                    log_images,
+                    save_images,
+                )
 
     # Compute final metrics
-    dice_score = total_dice_score / max(num_val_batches, 1)
-    precision_score = precision.compute().item()
-    recall_score = recall.compute().item()
-    f1_score = f1.compute().item()
-    auc_score = auc.compute().item()
-    iou_score = iou.compute().item()
+    results = {name: metric.compute().item() for name, metric in metrics.items()}
 
-    avg_dice_loss = total_dice_loss / max(num_val_batches, 1)
-    avg_focal_loss = total_focal_loss / max(num_val_batches, 1)
+    # Add averaged losses
+    for name, value in losses.items():
+        results[name] = value / num_val_batches
 
-    # Log metrics
+    # Log to wandb if enabled
     if log_images:
-        wandb.log(
-            {
-                f"{mode}/dice_score": dice_score,
-                f"{mode}/precision_score": precision_score,
-                f"{mode}/recall_score": recall_score,
-                f"{mode}/f1": f1_score,
-                f"{mode}/auc": auc_score,
-                f"{mode}/dice_loss": avg_dice_loss,
-                f"{mode}/focal_loss": avg_focal_loss,
-                f"{mode}/iou": iou_score,
-                f"{mode}/total_combined_loss": avg_dice_loss + avg_focal_loss,
-            }
-        )
+        wandb.log({f"{mode}/{k}": v for k, v in results.items()})
 
     net.train()
-
-    return {
-        "dice": dice_score,
-        "precision": precision_score,
-        "recall": recall_score,
-        "f1": f1_score,
-        "auc": auc_score,
-        "iou": iou_score,
-        "dice_loss": avg_dice_loss,
-        "focal_loss": avg_focal_loss,
-        "total_combined_val_loss": avg_dice_loss + avg_focal_loss,
-    }
+    return results
 
 
 def dice_coeff(
@@ -278,3 +232,31 @@ def save_image(image, path):
     """
 
     plt.imsave(path, image)
+
+
+def _log_images(
+    images, true_masks, pred_masks, epoch, mode, save_dir, log_wandb, save_local
+):
+    """Helper function to log/save validation images"""
+    for i in range(min(len(images), 5)):  # Limit to 5 images
+        img = images[i].cpu().permute(1, 2, 0).numpy()  # Convert to HWC
+        img = (img - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
+        true_mask = true_masks[i].cpu().numpy()
+        pred_mask = pred_masks[i].cpu().numpy()
+
+        # Create overlay
+        overlay_img = create_overlay(img, true_mask, pred_mask)
+
+        if log_wandb:
+            wandb.log(
+                {
+                    f"{mode}/Overlay_Image_{i}_Epoch_{epoch}": wandb.Image(
+                        overlay_img,
+                        caption=f"Overlay of Input, True Mask, and Prediction ({mode})",
+                    )
+                }
+            )
+
+        if save_local:
+            plt.imsave(save_dir / f"overlay_{i}.png", overlay_img)
+            np.save(save_dir / f"pred_mask_{i}.npy", pred_mask)

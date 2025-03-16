@@ -19,75 +19,49 @@ class CombinedLoss(nn.Module):
         self.focal_alpha = focal_alpha
 
     def dice_loss(self, pred, target, epsilon=1e-6):
-        """
-        Compute the Dice loss.
+        """Compute Dice loss with proper shape handling"""
+        # Ensure inputs are in the right shape (B, C, H, W)
+        pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
+        target = target.unsqueeze(1) if target.dim() == 3 else target
 
-        Args:
-            pred: Predicted logits or probabilities. Shape: (batch_size, height, width).
-            target: Ground truth binary mask. Shape: (batch_size, height, width).
-            epsilon: Small constant to prevent division by zero.
-
-        Returns:
-            Dice loss value.
-        """
-        # Ensure pred and target are of shape (batch_size, 1, height, width)
-        if pred.dim() == 3:
-            pred = pred.unsqueeze(1)  # Add channel dimension
-        if target.dim() == 3:
-            target = target.unsqueeze(1)  # Add channel dimension
-
-        # Convert to probabilities if necessary
+        # Apply sigmoid to get probabilities
         pred = torch.sigmoid(pred)
 
-        # Compute intersection and union
-        intersection = (pred * target).sum(dim=(2, 3))  # Element-wise multiplication
-        union = pred.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
+        # Flatten predictions and targets for easier computation
+        pred = pred.view(pred.size(0), -1)
+        target = target.view(target.size(0), -1)
+
+        intersection = (pred * target).sum(dim=1)
+        union = pred.sum(dim=1) + target.sum(dim=1)
 
         dice = (2.0 * intersection + epsilon) / (union + epsilon)
         return 1.0 - dice.mean()
 
     def focal_loss(self, pred, target, epsilon=1e-6):
-        """
-        Compute the Focal loss.
+        """Compute Focal loss with proper shape handling"""
+        # Ensure inputs are in the right shape (B, C, H, W)
+        pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
+        target = target.unsqueeze(1) if target.dim() == 3 else target
 
-        Args:
-            pred: Predicted logits (not probabilities). Shape: (batch_size, 1, height, width).
-            target: Ground truth binary mask. Shape: (batch_size, 1, height, width).
-            epsilon: Small constant to prevent division by zero.
+        # Compute BCE with logits
+        bce = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
 
-        Returns:
-            Focal loss value.
-        """
-        # Ensure pred and target are of shape (batch_size, 1, height, width)
-        if pred.dim() == 3:
-            pred = pred.unsqueeze(1)  # Add channel dimension
-        if target.dim() == 3:
-            target = target.unsqueeze(1)  # Add channel dimension
-
-        # Use binary_cross_entropy_with_logits to combine sigmoid and BCE
-        bce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
-
-        # Compute probabilities from logits for focal loss calculation
+        # Get probabilities for focal term
         pred_prob = torch.sigmoid(pred)
-        p_t = pred_prob * target + (1 - pred_prob) * (1 - target)  # Probabilities for the true class
+        # Calculate p_t: probability of the true class (both for positive and negative cases)
+        p_t = target * pred_prob + (1 - target) * (1 - pred_prob)
+        # Apply focusing parameter gamma
+        focal_term = (1 - p_t) ** self.gamma
 
-        # Compute focal loss
-        focal_loss = (self.focal_alpha * (1 - p_t) ** self.gamma * bce_loss).mean()
+        # Apply class weights: focal_alpha for positive class, (1-focal_alpha) for negative class
+        alpha_t = target * self.focal_alpha + (1 - target) * (1 - self.focal_alpha)
 
-        return focal_loss
+        # Combine all terms
+        focal = alpha_t * focal_term * bce
+        return focal.mean()
 
     def forward(self, pred, target):
-        """
-        Compute the combined loss.
-
-        Args:
-            pred: Predicted logits. Shape: (batch_size, height, width).
-            target: Ground truth binary mask. Shape: (batch_size, height, width).
-
-        Returns:
-            Combined loss value, Dice loss value, and Focal loss value.
-        """
+        """Combined Dice and Focal loss"""
         dice = self.dice_loss(pred, target)
         focal = self.focal_loss(pred, target)
-        combined = self.alpha * dice + (1 - self.alpha) * focal
-        return combined, dice, focal
+        return self.alpha * dice + (1 - self.alpha) * focal, dice, focal

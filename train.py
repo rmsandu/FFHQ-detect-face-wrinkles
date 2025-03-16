@@ -85,9 +85,6 @@ def train_model(model, device, config):
         image_dir=image_dir, mask_dir=mask_dir, transform=transform
     )
 
-    # Analyze class imbalance
-    # analyze_class_imbalance(DataLoader(dataset, batch_size=batch_size, shuffle=False))
-    # Split dataset
     n_val = int(len(dataset) * val_percent)
     # n_test = int(len(dataset) * val_test)  # 10% for testing
     n_train = len(dataset) - n_val
