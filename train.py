@@ -114,8 +114,8 @@ def train_model(model, device, config):
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
-        mode="max",
-        factor=0.75,  # More gradual reduction
+        mode="max",  # Use 'max' since higher IoU is better
+        factor=0.75,
         patience=10,
         verbose=True,
         min_lr=1e-6,
@@ -125,7 +125,8 @@ def train_model(model, device, config):
     grad_scaler = torch.amp.GradScaler(enabled=amp)
 
     # Training state
-    best_val_score = 0.0
+    best_val_loss = float("inf")  # For tracking best loss
+    best_val_iou = 0.0  # For tracking best IoU
     patience_counter = 0
     global_step = 0
 
@@ -133,6 +134,7 @@ def train_model(model, device, config):
 
     try:
         for epoch in range(epochs):
+            # Training phase
             model.train()
             epoch_loss = 0
 
@@ -209,34 +211,57 @@ def train_model(model, device, config):
                 mode="val",
             )
 
-            scheduler.step(val_score["dice"])
+            val_loss = val_score["combined_loss"]
+            val_iou = val_score["iou"]
 
-            # Log validation metrics
+            # Update learning rate based on validation loss
+            scheduler.step(val_loss)  # Changed to use loss for LR scheduling
+
+            # Log all metrics
             wandb.log(
                 {
-                    "val/dice": val_score["dice"],
+                    **{f"val/{k}": v for k, v in val_score.items()},
                     "val/epoch": epoch,
                     "learning_rate": optimizer.param_groups[0]["lr"],
                 }
             )
 
-            # Save best model
-            if val_score["dice"] > best_val_score:
-                best_val_score = val_score["dice"]
-                patience_counter = 0
-                checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            # Save models for both best loss and best IoU
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 torch.save(
                     {
                         "epoch": epoch,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
                         "scheduler_state_dict": scheduler.state_dict(),
-                        "best_val_score": best_val_score,
+                        "best_val_loss": best_val_loss,
+                        "all_metrics": val_score,
                     },
-                    checkpoint_dir / "best_model.pth",
+                    checkpoint_dir / "best_loss_model.pth",
                 )
 
-                wandb.log({"best_val_dice": best_val_score})
+                wandb.log({"best_val_loss": best_val_loss})
+
+            if val_iou > best_val_iou:
+                best_val_iou = val_iou
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "scheduler_state_dict": scheduler.state_dict(),
+                        "best_val_iou": best_val_iou,
+                        "all_metrics": val_score,
+                    },
+                    checkpoint_dir / "best_iou_model.pth",
+                )
+
+                wandb.log({"best_val_iou": best_val_iou})
+
+            # Reset patience if either metric improves
+            if val_loss < best_val_loss or val_iou > best_val_iou:
+                patience_counter = 0
             else:
                 patience_counter += 1
 
@@ -254,14 +279,16 @@ def train_model(model, device, config):
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
-                "best_val_score": best_val_score,
+                "final_val_iou": val_iou,
+                "best_val_iou": best_val_iou,
+                "all_metrics": val_score,
             },
             checkpoint_dir / "final_model.pth",
         )
 
         wandb.finish()
 
-    return best_val_score
+    return best_val_iou
 
 
 if __name__ == "__main__":
