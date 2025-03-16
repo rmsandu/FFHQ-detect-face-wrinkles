@@ -104,6 +104,10 @@ class AttentionGate(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, g, x):
+        # Upsample g if necessary
+        if g.size()[2:] != x.size()[2:]:
+            g = F.interpolate(g, size=x.size()[2:], mode="bilinear", align_corners=True)
+
         g1 = self.W_g(g)
         x1 = self.W_x(x)
         psi = self.relu(g1 + x1)

@@ -19,11 +19,11 @@ class UNet(nn.Module):
         factor = 2 if bilinear else 1
         self.down4 = Down(512, 1024 // factor)
 
-        # Add attention gates
-        self.attention1 = AttentionGate(F_g=512 // factor, F_l=512, F_int=256)
-        self.attention2 = AttentionGate(F_g=256 // factor, F_l=256, F_int=128)
-        self.attention3 = AttentionGate(F_g=128 // factor, F_l=128, F_int=64)
-        self.attention4 = AttentionGate(F_g=64, F_l=64, F_int=32)
+        # Fix attention gates channel dimensions
+        self.attention1 = AttentionGate(F_g=1024 // factor, F_l=512, F_int=256)
+        self.attention2 = AttentionGate(F_g=512 // factor, F_l=256, F_int=128)
+        self.attention3 = AttentionGate(F_g=256 // factor, F_l=128, F_int=64)
+        self.attention4 = AttentionGate(F_g=128 // factor, F_l=64, F_int=32)
 
         self.up1 = Up(1024, 512 // factor, bilinear)
         self.up2 = Up(512, 256 // factor, bilinear)

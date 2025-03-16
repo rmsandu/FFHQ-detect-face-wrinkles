@@ -13,6 +13,7 @@ from utils.dataset_loading import (
     WrinkleDataset,
     get_debug_transforms,
     get_augmentation_transforms,
+    calculate_class_weights,
 )
 
 from evaluate import evaluate
@@ -23,29 +24,6 @@ from losses import CombinedLoss
 def load_config(config_file):
     with open(config_file, "r") as file:
         return yaml.safe_load(file)
-
-
-def calculate_class_weights(dataset, dataloader=None):
-    """Calculate class weights based on dataset statistics"""
-    if dataloader is None:
-        dataloader = DataLoader(dataset, batch_size=1, num_workers=4)
-
-    total_pixels = 0
-    wrinkle_pixels = 0
-    logging.info("Calculating class weights...")
-
-    with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Analyzing class distribution"):
-            mask = batch["mask"]
-            total_pixels += mask.numel()
-            wrinkle_pixels += mask.sum().item()
-
-    background_pixels = total_pixels - wrinkle_pixels
-    ratio = background_pixels / wrinkle_pixels
-    pos_weight = torch.tensor([ratio])
-
-    logging.info(f"Class distribution - Background:Wrinkle = {ratio:.2f}:1")
-    return pos_weight
 
 
 def train_model(model, device, config):
@@ -113,15 +91,17 @@ def train_model(model, device, config):
     val_loader = DataLoader(val_set, shuffle=False, **loader_args)
 
     # Calculate class weights from training set
-    pos_weight = calculate_class_weights(train_set)
-    pos_weight = pos_weight.to(device)
+    if config.get("use_class_weights", False):
+        pos_weight = calculate_class_weights(train_set)
+    else:
+        pos_weight = None  # No class weights
 
     # Initialize loss function
     loss_fn = CombinedLoss(
         alpha=config["loss_function"]["alpha"],
         gamma=config["loss_function"]["gamma"],
-        focal_alpha=0.9,  # Heavy weight on positive class
-        pos_weight=pos_weight * 2.0,  # Additional weighting factor
+        focal_alpha=config["loss_function"]["focal_alpha"],
+        pos_weight=pos_weight,
     ).to(device)
 
     # Optimizer and scheduler

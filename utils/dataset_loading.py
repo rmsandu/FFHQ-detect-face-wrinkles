@@ -2,11 +2,13 @@ import os
 import logging
 import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import torch
 import torchvision.transforms as transforms
+import cv2
+from tqdm import tqdm
 
 os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 
@@ -14,16 +16,18 @@ os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 class WrinkleDataset(Dataset):
     """Custom dataset for loading wrinkle images and masks."""
 
-    def __init__(self, image_dir, mask_dir, transform=None):
+    def __init__(self, image_dir, mask_dir, transform=None, calculate_weights=False):
         """
         Args:
             image_dir (str): Path to the directory containing RGB images.
             mask_dir (str): Path to the directory containing binary masks.
             transform (callable, optional): Optional transform to be applied on an image/mask pair.
+            calculate_weights (bool, optional): Flag to calculate class weights.
         """
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.transform = transform
+        self.calculate_weights = calculate_weights
 
         # Load image and mask filenames
         self.images = sorted(
@@ -67,9 +71,37 @@ class WrinkleDataset(Dataset):
             self.images[idx].split(".")[0] == self.masks[idx].split(".")[0]
         ), f"Image and mask names do not match: {self.images[idx]} vs {self.masks[idx]}"
 
-        # Load image and mask
-        image = np.array(Image.open(img_path).convert("RGB"))  # Shape: (H, W, C)
-        mask = np.array(Image.open(mask_path).convert("L"))  # Shape: (H, W)
+        # Load image and mask using PIL first
+        pil_image = Image.open(img_path).convert("RGB")
+        pil_mask = Image.open(mask_path).convert("L")
+
+        # Resize masks to match image size if they don't match
+        if pil_image.size != pil_mask.size:
+            logging.warning(f"Resizing mask to match image size for {self.images[idx]}")
+            pil_image = pil_image.resize(
+                (512, 512), Image.Resampling.LANCZOS
+            )  # Better quality for images
+            pil_mask = pil_mask.resize(
+                (512, 512), Image.Resampling.NEAREST
+            )  # Preserve binary values for masks
+
+        # Convert to numpy arrays after ensuring sizes match
+        image = np.array(pil_image)
+        mask = np.array(pil_mask)
+
+        # Now apply any additional resizing if needed (though we've already resized)
+        basic_transform = A.Compose(
+            [
+                A.Resize(
+                    height=512,
+                    width=512,
+                    interpolation=cv2.INTER_LANCZOS4,  # For image
+                    mask_interpolation=cv2.INTER_NEAREST,
+                )  # For mask
+            ]
+        )
+        transformed = basic_transform(image=image, mask=mask)
+        image, mask = transformed["image"], transformed["mask"]
 
         # Verify image dimensions
         assert (
@@ -92,23 +124,29 @@ class WrinkleDataset(Dataset):
             image.shape[:2] == mask.shape[:2]
         ), f"Image shape {image.shape[:2]} does not match mask shape {mask.shape[:2]}"
 
-        # Apply transforms if provided
+        if self.calculate_weights:
+            # For weight calculation, we only need the basic mask without transforms
+            mask = torch.from_numpy(mask).float()
+            mask = mask.unsqueeze(0)  # Add channel dimension (1, H, W)
+            return {"mask": mask}
+
+        # Regular processing for training/validation
         if self.transform:
             augmented = self.transform(image=image, mask=mask)
             image, mask = augmented["image"], augmented["mask"]
+
+            # Ensure mask has channel dimension after transform
+            if len(mask.shape) == 2:
+                mask = mask.unsqueeze(0)
         else:
             # If no transforms, manually convert to tensor and normalize
-            # Transpose image from HWC to CHW
             image = np.transpose(image, (2, 0, 1))
             image = torch.from_numpy(image).float()
-            # Normalize image to [0, 1]
             image = image / 255.0
-            # Normalize with ImageNet stats if needed
             image = transforms.Normalize(
                 mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
             )(image)
 
-            # Convert mask to tensor and add channel dimension
             mask = torch.from_numpy(mask).float()
             mask = mask.unsqueeze(0)  # Add channel dimension (1, H, W)
 
@@ -139,7 +177,7 @@ def get_debug_transforms():
         [
             A.Resize(512, 512),
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ToTensorV2(),
+            ToTensorV2(transpose_mask=True),  # This will ensure proper mask dimensions
         ]
     )
 
@@ -160,6 +198,55 @@ def get_augmentation_transforms():
             A.GaussianBlur(blur_limit=(3, 7), p=0.3),
             A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ToTensorV2(),
+            ToTensorV2(transpose_mask=True),  # This will ensure proper mask dimensions
         ]
     )
+
+
+def calculate_class_weights(dataset):
+    """
+    Calculate class weights based on dataset statistics.
+
+    Args:
+        dataset: WrinkleDataset instance or Subset of WrinkleDataset
+    Returns:
+        torch.Tensor: Weight for positive class based on class distribution
+    """
+    total_pixels = 0
+    wrinkle_pixels = 0
+    logging.info("Calculating class weights...")
+
+    # Handle both Dataset and Subset cases
+    if hasattr(dataset, "dataset"):  # If it's a Subset
+        original_dataset = dataset.dataset
+    else:  # If it's the original Dataset
+        original_dataset = dataset
+
+    # Create a dataloader without transforms to get raw masks
+    basic_dataset = WrinkleDataset(
+        image_dir=original_dataset.image_dir,
+        mask_dir=original_dataset.mask_dir,
+        transform=None,
+        calculate_weights=True,
+    )
+
+    dataloader = DataLoader(basic_dataset, batch_size=1, num_workers=4)
+
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Analyzing class distribution"):
+            mask = batch["mask"]
+            # Ensure mask is 2D for counting (remove batch and channel dimensions if present)
+            if mask.dim() == 4:  # (B, C, H, W)
+                mask = mask.squeeze(0).squeeze(0)
+            elif mask.dim() == 3:  # (B, H, W)
+                mask = mask.squeeze(0)
+
+            total_pixels += mask.numel()
+            wrinkle_pixels += mask.sum().item()
+
+    background_pixels = total_pixels - wrinkle_pixels
+    ratio = background_pixels / wrinkle_pixels
+    pos_weight = torch.tensor([ratio])
+
+    logging.info(f"Class distribution - Background:Wrinkle = {ratio:.2f}:1")
+    return pos_weight
