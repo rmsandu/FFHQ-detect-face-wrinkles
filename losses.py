@@ -4,19 +4,19 @@ import torch.nn.functional as F
 
 
 class CombinedLoss(nn.Module):
-    def __init__(self, alpha=0.7, gamma=2.0, focal_alpha=0.25):
+    def __init__(self, alpha=0.7, gamma=2.0, focal_alpha=0.75, pos_weight=None):
         """
-        Initialize the Combined Loss function.
-
         Args:
-            alpha: Weighting factor for the Dice loss in the combination.
-            gamma: Focusing parameter for the Focal loss.
-            focal_alpha: Weighting factor for the positive class in Focal loss.
+            alpha: Weight between Dice (alpha) and Focal loss (1-alpha)
+            gamma: Focal loss focusing parameter
+            focal_alpha: Weight for positive class (wrinkles)
+            pos_weight: Optional tensor of positive class weights for BCE
         """
         super(CombinedLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.focal_alpha = focal_alpha
+        self.pos_weight = pos_weight
 
     def dice_loss(self, pred, target, epsilon=1e-6):
         """Compute Dice loss with proper shape handling"""
@@ -24,15 +24,20 @@ class CombinedLoss(nn.Module):
         pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
         target = target.unsqueeze(1) if target.dim() == 3 else target
 
+        # Apply class weights to handle imbalance
+        weight_map = target * (self.pos_weight if self.pos_weight is not None else 2.0)
+        weight_map = weight_map + 1.0  # Background weight is 1
+
         # Apply sigmoid to get probabilities
         pred = torch.sigmoid(pred)
 
         # Flatten predictions and targets for easier computation
         pred = pred.view(pred.size(0), -1)
         target = target.view(target.size(0), -1)
+        weight_map = weight_map.view(weight_map.size(0), -1)
 
-        intersection = (pred * target).sum(dim=1)
-        union = pred.sum(dim=1) + target.sum(dim=1)
+        intersection = (pred * target * weight_map).sum(dim=1)
+        union = (pred * weight_map).sum(dim=1) + (target * weight_map).sum(dim=1)
 
         dice = (2.0 * intersection + epsilon) / (union + epsilon)
         return 1.0 - dice.mean()
@@ -43,8 +48,15 @@ class CombinedLoss(nn.Module):
         pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
         target = target.unsqueeze(1) if target.dim() == 3 else target
 
-        # Compute BCE with logits
-        bce = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
+        # Use pos_weight in BCE calculation
+        bce = F.binary_cross_entropy_with_logits(
+            pred,
+            target,
+            pos_weight=(
+                self.pos_weight.to(pred.device) if self.pos_weight is not None else None
+            ),
+            reduction="none",
+        )
 
         # Get probabilities for focal term
         pred_prob = torch.sigmoid(pred)
@@ -53,7 +65,7 @@ class CombinedLoss(nn.Module):
         # Apply focusing parameter gamma
         focal_term = (1 - p_t) ** self.gamma
 
-        # Apply class weights: focal_alpha for positive class, (1-focal_alpha) for negative class
+        # Increased weight for positive class
         alpha_t = target * self.focal_alpha + (1 - target) * (1 - self.focal_alpha)
 
         # Combine all terms

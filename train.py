@@ -26,6 +26,20 @@ def load_config(config_file):
         return yaml.safe_load(file)
 
 
+def calculate_class_weights(dataset):
+    """Calculate class weights based on dataset statistics"""
+    total_pixels = 0
+    wrinkle_pixels = 0
+    for batch in DataLoader(dataset, batch_size=1):
+        mask = batch["mask"]
+        total_pixels += mask.numel()
+        wrinkle_pixels += mask.sum().item()
+
+    background_pixels = total_pixels - wrinkle_pixels
+    pos_weight = torch.tensor([background_pixels / wrinkle_pixels])
+    return pos_weight
+
+
 def train_model(model, device, config):
     """
     Trains the U-Net model on the wrinkle segmentation task.
@@ -47,18 +61,13 @@ def train_model(model, device, config):
     image_dir = Path(config["image_dir"])
     mask_dir = Path(config["mask_dir"])
 
-    if config["loss_function"]["name"] == "CombinedLoss":
-        loss_fn = CombinedLoss(
-            alpha=config["loss_function"]["alpha"],
-            gamma=config["loss_function"]["gamma"],
-            focal_alpha=config["loss_function"]["focal_alpha"],
-        )
-    elif config["loss_function"]["name"] == "BCEWithLogitsLoss":
-        loss_fn = nn.BCEWithLogitsLoss()
-    else:
-        raise ValueError(
-            f"Unsupported loss function: {config['loss_function']['name']}"
-        )
+    pos_weight = calculate_class_weights(dataset)
+    loss_fn = CombinedLoss(
+        alpha=config["loss_function"]["alpha"],
+        gamma=config["loss_function"]["gamma"],
+        focal_alpha=0.75,  # Increased weight for wrinkles
+        pos_weight=pos_weight,
+    )
 
     wandb.init(project=config["wandb_project"], entity=config["wandb_entity"])
 
@@ -133,6 +142,16 @@ def train_model(model, device, config):
             for batch in train_loader:
                 images = batch["image"].to(device, dtype=torch.float32)
                 true_masks = batch["mask"].to(device, dtype=torch.float32)
+
+                # Add validation checks
+                assert torch.all(
+                    (true_masks >= 0) & (true_masks <= 1)
+                ), "Mask values must be binary"
+                assert torch.any(true_masks > 0), "Batch contains no positive samples"
+
+                # Monitor class distribution
+                pos_ratio = true_masks.mean().item()
+                wandb.log({"batch_positive_ratio": pos_ratio})
 
                 # verify the batch size for images and masks
                 assert (
