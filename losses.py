@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class CombinedLoss(nn.Module):
-    def __init__(self, alpha=0.7, gamma=2.0, focal_alpha=0.75, pos_weight=None):
+    def __init__(self, alpha=0.5, gamma=2.0, focal_alpha=0.75, pos_weight=None):
         """
         Args:
             alpha: Weight between Dice (alpha) and Focal loss (1-alpha)
@@ -16,7 +16,7 @@ class CombinedLoss(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
         self.focal_alpha = focal_alpha
-        self.pos_weight = pos_weight
+        self.pos_weight = pos_weight if pos_weight is not None else torch.tensor([5.0])
 
     def dice_loss(self, pred, target, epsilon=1e-6):
         """Compute Dice loss with proper shape handling"""
@@ -24,8 +24,8 @@ class CombinedLoss(nn.Module):
         pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
         target = target.unsqueeze(1) if target.dim() == 3 else target
 
-        # Apply class weights to handle imbalance
-        weight_map = target * (self.pos_weight if self.pos_weight is not None else 2.0)
+        # Use same pos_weight as BCE
+        weight_map = target * self.pos_weight
         weight_map = weight_map + 1.0  # Background weight is 1
 
         # Apply sigmoid to get probabilities
@@ -48,13 +48,11 @@ class CombinedLoss(nn.Module):
         pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
         target = target.unsqueeze(1) if target.dim() == 3 else target
 
-        # Use pos_weight in BCE calculation
+        # Use same pos_weight in BCE
         bce = F.binary_cross_entropy_with_logits(
             pred,
             target,
-            pos_weight=(
-                self.pos_weight.to(pred.device) if self.pos_weight is not None else None
-            ),
+            pos_weight=self.pos_weight.to(pred.device),
             reduction="none",
         )
 

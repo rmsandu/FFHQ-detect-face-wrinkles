@@ -7,7 +7,7 @@ test_percent: 0
 amp: true
 weight_decay: 0.00001 # Reduced to prevent over-regularization of rare positive class
 gradient_clipping: 1.0
-patience: 20
+patience: 30
 augmentation: True
 loss_function:
   name: "CombinedLoss" # Options: "CombinedLoss", "BCEWithLogitsLoss"

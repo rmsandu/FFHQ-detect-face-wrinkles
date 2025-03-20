@@ -190,6 +190,25 @@ def train_model(model, device, config):
                         pbar.update(images.shape[0])
                         pbar.set_postfix(loss=f"{loss.item():.4f}")
 
+                        # Add validation checks
+                        with torch.no_grad():
+                            pred_probs = torch.sigmoid(masks_pred)
+                            pred_binary = (pred_probs > 0.5).float()
+
+                            # Monitor predictions
+                            pred_pos_ratio = pred_binary.mean().item()
+                            if pred_pos_ratio > 0.5:
+                                logging.warning(
+                                    f"High positive prediction ratio: {pred_pos_ratio:.3f}"
+                                )
+
+                            # Monitor gradients
+                            grad_norm = torch.nn.utils.clip_grad_norm_(
+                                model.parameters(), gradient_clipping
+                            )
+                            if grad_norm > gradient_clipping:
+                                logging.warning(f"Large gradient norm: {grad_norm:.3f}")
+
                     except RuntimeError as e:
                         if "out of memory" in str(e):
                             logging.warning("GPU OOM, skipping batch")
@@ -243,8 +262,12 @@ def train_model(model, device, config):
 
                 wandb.log({"best_val_loss": best_val_loss})
 
-            if val_iou > best_val_iou:
+            if (
+                val_iou > best_val_iou and val_iou > 0.01
+            ):  # Only count improvement if IoU is meaningful
                 best_val_iou = val_iou
+                patience_counter = 0
+                # Save model
                 torch.save(
                     {
                         "epoch": epoch,
