@@ -1,7 +1,7 @@
 # config.yaml
 epochs: 100
 batch_size: 8
-learning_rate: 0.00005 # Reduced for more stable training with imbalanced data
+learning_rate: 0.0001 # Reduced for more stable training with imbalanced data
 val_percent: 0.2
 test_percent: 0
 amp: true
@@ -9,12 +9,6 @@ weight_decay: 0.00001 # Reduced to prevent over-regularization of rare positive 
 gradient_clipping: 1.0
 patience: 20
 augmentation: True
-loss_function:
-  name: "CombinedLoss" # Options: "CombinedLoss", "BCEWithLogitsLoss"
-  alpha: 0.75 # Reduced dice loss weight due to class imbalance
-  gamma: 2 #  # Increased to focus more on hard examples
-  focal_alpha: 0.9 # Class weight for Focal Loss
-use_class_weights: True # Set to false to deactivate class weights
 checkpoint_dir: "./checkpoints/"
 image_dir: "./data/masked_face_images"
 mask_dir: "./data/manual_wrinkle_masks"
