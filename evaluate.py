@@ -17,7 +17,7 @@ from tqdm import tqdm
 import wandb
 
 # Local imports
-from losses import CombinedLoss
+from losses import binary_focal_loss, dice_loss
 
 
 @torch.inference_mode()
@@ -57,13 +57,20 @@ def evaluate(
     metrics = {
         "precision": BinaryPrecision().to(device),
         "recall": BinaryRecall().to(device),
-        "f1": BinaryF1Score().to(device),
+        "f1": BinaryF1Score().to(device),  # BinaryF1Score is equivalent to Dice score
         "auc": BinaryAUROC().to(device),
         "iou": BinaryJaccardIndex().to(device),
     }
 
     # Initialize loss tracking
     losses = {"dice_loss": 0.0, "focal_loss": 0.0, "combined_loss": 0.0}
+
+    # Create save directory if needed
+    save_dir = None
+    if save_images:
+        run_name = run_name or wandb.run.name if wandb.run else "default_run"
+        save_dir = Path(f"results/{mode}/{run_name}/epoch_{epoch}")
+        save_dir.mkdir(parents=True, exist_ok=True)
 
     with torch.autocast(device.type if device.type != "mps" else "cpu", enabled=amp):
         for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"{mode} round")):
@@ -88,7 +95,6 @@ def evaluate(
             # Calculate losses separately
             focal_loss_val = binary_focal_loss(pred_masks, true_masks)
             dice_loss_val = dice_loss(torch.sigmoid(pred_masks), true_masks)
-            loss = focal_loss_val + dice_loss_val
 
             # Update loss tracking
             losses["dice_loss"] += dice_loss_val.item()
@@ -131,67 +137,6 @@ def evaluate(
 
     net.train()
     return results
-
-
-def dice_coeff(
-    input: Tensor,
-    target: Tensor,
-    reduce_batch_first: bool = False,
-    epsilon: float = 1e-6,
-) -> Tensor:
-    """
-    Compute the Dice coefficient for binary segmentation.
-
-    Args:
-        input: Predicted tensor of shape (N, H, W) or (N, C, H, W).
-        target: Ground truth tensor of the same shape as `input`.
-        reduce_batch_first: Whether to average the Dice score across the batch.
-        epsilon: Small value to prevent division by zero.
-
-    Returns:
-        Dice coefficient as a Tensor.
-    """
-    assert input.size() == target.size(), "Input and target must have the same shape"
-    sum_dim = (-1, -2) if input.dim() == 3 or not reduce_batch_first else (-1, -2, -3)
-
-    # Compute intersection and union
-    inter = 2 * (input * target).sum(dim=sum_dim)
-    sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
-    sets_sum = torch.where(
-        sets_sum == 0, inter, sets_sum
-    )  # Handle edge cases where sets_sum is zero
-
-    dice = (inter + epsilon) / (sets_sum + epsilon)
-    return dice.mean()
-
-
-def _binary_dice_score(pred_masks: Tensor, true_masks: Tensor) -> Tensor:
-    """
-    Compute Dice score for binary segmentation.
-
-    Args:
-        pred_masks: Logits or probabilities (before or after sigmoid).
-        true_masks: Binary ground truth masks.
-
-    Returns:
-        Dice score as a Tensor.
-
-    """
-    pred_probs = torch.sigmoid(pred_masks)  # Convert logits to probabilities
-    pred_bin = (pred_probs > 0.5).float()  # Threshold probabilities to get binary mask
-
-    # Ensure masks have the same shape and remove unnecessary dimensions
-    if true_masks.dim() == 4 and true_masks.size(1) == 1:
-        true_masks = true_masks.squeeze(1)  # (B, H, W)
-
-    if pred_bin.dim() == 4 and pred_bin.size(1) == 1:
-        pred_bin = pred_bin.squeeze(1)
-
-    assert (
-        pred_bin.shape == true_masks.shape
-    ), f"Shape mismatch: {pred_bin.shape} vs {true_masks.shape}"
-
-    return dice_coeff(pred_bin, true_masks, reduce_batch_first=True)
 
 
 def create_overlay(image, true_mask, pred_mask):
