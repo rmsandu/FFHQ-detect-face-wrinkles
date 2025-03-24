@@ -55,26 +55,3 @@ def dice_loss(pred, target, epsilon=1e-6):
     # Calculate Dice coefficient
     dice = (2.0 * intersection + epsilon) / (union + epsilon)
     return 1.0 - dice.mean()
-
-
-class CombinedLoss(nn.Module):
-    def __init__(self, alpha=0.5, gamma=2.0, focal_alpha=0.75, pos_weight=None):
-        """
-        Args:
-            alpha: Weight between Dice (alpha) and Focal loss (1-alpha)
-            gamma: Focal loss focusing parameter
-            focal_alpha: Weight for positive class (wrinkles)
-            pos_weight: Optional tensor of positive class weights for BCE
-        """
-        super(CombinedLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.focal_alpha = focal_alpha
-        # Initialize pos_weight but don't move to device yet
-        self.pos_weight = pos_weight if pos_weight is not None else torch.tensor([5.0])
-
-    def forward(self, pred, target):
-        """Combined Dice and Focal loss"""
-        dice = dice_loss(pred, target)
-        focal = binary_focal_loss(pred, target)
-        return self.alpha * dice + (1 - self.alpha) * focal, dice, focal
