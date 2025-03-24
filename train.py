@@ -114,7 +114,7 @@ def train_model(model, device, config):
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
-        mode="max",  # Use 'max' since higher IoU is better
+        mode="min",  # Use 'max' since higher IoU is better
         factor=0.75,
         patience=10,
         verbose=True,
@@ -125,12 +125,10 @@ def train_model(model, device, config):
     grad_scaler = torch.amp.GradScaler(enabled=amp)
 
     # Training state
-    best_val_loss = float("inf")  # For tracking best loss
     best_val_iou = 0.0  # For tracking best IoU
+    best_model_info = None  # Store best model's info
     patience_counter = 0
     global_step = 0
-
-    logging.info(f"Starting training: {epochs} epochs, {n_train} training samples")
 
     try:
         for epoch in range(epochs):
@@ -166,9 +164,14 @@ def train_model(model, device, config):
                         if amp:
                             grad_scaler.unscale_(optimizer)
 
-                        torch.nn.utils.clip_grad_norm_(
+                        # Gradient clipping and monitoring - Do this only once
+                        grad_norm = torch.nn.utils.clip_grad_norm_(
                             model.parameters(), gradient_clipping
                         )
+                        if grad_norm > gradient_clipping:
+                            logging.warning(f"Large gradient norm: {grad_norm:.3f}")
+
+                        # Optimizer steps
                         grad_scaler.step(optimizer)
                         grad_scaler.update()
 
@@ -190,24 +193,15 @@ def train_model(model, device, config):
                         pbar.update(images.shape[0])
                         pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-                        # Add validation checks
+                        # Prediction monitoring (separate from gradient monitoring)
                         with torch.no_grad():
                             pred_probs = torch.sigmoid(masks_pred)
                             pred_binary = (pred_probs > 0.5).float()
-
-                            # Monitor predictions
                             pred_pos_ratio = pred_binary.mean().item()
                             if pred_pos_ratio > 0.5:
                                 logging.warning(
                                     f"High positive prediction ratio: {pred_pos_ratio:.3f}"
                                 )
-
-                            # Monitor gradients
-                            grad_norm = torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), gradient_clipping
-                            )
-                            if grad_norm > gradient_clipping:
-                                logging.warning(f"Large gradient norm: {grad_norm:.3f}")
 
                     except RuntimeError as e:
                         if "out of memory" in str(e):
@@ -230,13 +224,14 @@ def train_model(model, device, config):
                 mode="val",
             )
 
+            # Get validation metrics
             val_loss = val_score["combined_loss"]
             val_iou = val_score["iou"]
 
-            # Update learning rate based on validation loss
-            scheduler.step(val_loss)  # Changed to use loss for LR scheduling
+            # Step scheduler with validation loss
+            scheduler.step(val_loss)
 
-            # Log all metrics
+            # Log all validation metrics to W&B
             wandb.log(
                 {
                     **{f"val/{k}": v for k, v in val_score.items()},
@@ -245,48 +240,50 @@ def train_model(model, device, config):
                 }
             )
 
-            # Save models for both best loss and best IoU
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "scheduler_state_dict": scheduler.state_dict(),
-                        "best_val_loss": best_val_loss,
-                        "all_metrics": val_score,
-                    },
-                    checkpoint_dir / "best_loss_model.pth",
-                )
-
-                wandb.log({"best_val_loss": best_val_loss})
-
-            if (
-                val_iou > best_val_iou and val_iou > 0.01
-            ):  # Only count improvement if IoU is meaningful
+            # Save best model based on IoU
+            if val_iou > best_val_iou:
                 best_val_iou = val_iou
                 patience_counter = 0
-                # Save model
-                torch.save(
+
+                # Store best model's info
+                best_model_info = {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "best_val_iou": best_val_iou,
+                    "all_metrics": val_score,
+                }
+
+                # Save best model
+                checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                torch.save(best_model_info, checkpoint_dir / "best_checkpoint.pth")
+
+                # Log best metrics
+                wandb.log(
                     {
-                        "epoch": epoch,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "scheduler_state_dict": scheduler.state_dict(),
                         "best_val_iou": best_val_iou,
-                        "all_metrics": val_score,
-                    },
-                    checkpoint_dir / "best_iou_model.pth",
+                        "best_val_epoch": epoch,
+                    }
                 )
 
-                wandb.log({"best_val_iou": best_val_iou})
-
-            # Reset patience if either metric improves
-            if val_loss < best_val_loss or val_iou > best_val_iou:
-                patience_counter = 0
+                logging.info(f"New best model saved! (IoU: {best_val_iou:.4f})")
             else:
                 patience_counter += 1
+
+            # Save regular checkpoint (optional, for recovery)
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "val_iou": val_iou,
+                    "best_val_iou": best_val_iou,
+                    "all_metrics": val_score,
+                },
+                checkpoint_dir / "last_checkpoint.pth",
+            )
 
             if patience_counter >= config["patience"]:
                 logging.info(f"Early stopping after {epoch + 1} epochs")
@@ -294,8 +291,15 @@ def train_model(model, device, config):
 
     except KeyboardInterrupt:
         logging.info("Training interrupted by user")
+    except Exception as e:
+        logging.error(f"Error during training: {str(e)}")
+        raise
     finally:
-        # Save final model state
+        # If training was interrupted, ensure we still have the best model saved
+        if best_model_info is not None:
+            torch.save(best_model_info, checkpoint_dir / "best_checkpoint.pth")
+
+        # Save final state in a separate file
         torch.save(
             {
                 "epoch": epoch,
@@ -306,7 +310,7 @@ def train_model(model, device, config):
                 "best_val_iou": best_val_iou,
                 "all_metrics": val_score,
             },
-            checkpoint_dir / "final_model.pth",
+            checkpoint_dir / "final_checkpoint.pth",
         )
 
         wandb.finish()

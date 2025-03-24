@@ -16,16 +16,20 @@ class CombinedLoss(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
         self.focal_alpha = focal_alpha
+        # Initialize pos_weight but don't move to device yet
         self.pos_weight = pos_weight if pos_weight is not None else torch.tensor([5.0])
 
     def dice_loss(self, pred, target, epsilon=1e-6):
         """Compute Dice loss with proper shape handling"""
+        # Move pos_weight to the same device as the input
+        pos_weight = self.pos_weight.to(pred.device)
+
         # Ensure inputs are in the right shape (B, C, H, W)
         pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
         target = target.unsqueeze(1) if target.dim() == 3 else target
 
-        # Use same pos_weight as BCE
-        weight_map = target * self.pos_weight
+        # Use pos_weight that's now on the correct device
+        weight_map = target * pos_weight
         weight_map = weight_map + 1.0  # Background weight is 1
 
         # Apply sigmoid to get probabilities
@@ -44,15 +48,18 @@ class CombinedLoss(nn.Module):
 
     def focal_loss(self, pred, target, epsilon=1e-6):
         """Compute Focal loss with proper shape handling"""
+        # Move pos_weight to the same device as the input
+        pos_weight = self.pos_weight.to(pred.device)
+
         # Ensure inputs are in the right shape (B, C, H, W)
         pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
         target = target.unsqueeze(1) if target.dim() == 3 else target
 
-        # Use same pos_weight in BCE
+        # Use pos_weight that's now on the correct device
         bce = F.binary_cross_entropy_with_logits(
             pred,
             target,
-            pos_weight=self.pos_weight.to(pred.device),
+            pos_weight=pos_weight,
             reduction="none",
         )
 
