@@ -53,7 +53,7 @@ class UNet(nn.Module):
 
         logits = self.outc(x)
         if self.n_classes == 1:
-            return torch.sigmoid(logits)  # Binary segmentation
+            return logits  # Binary segmentation
         else:
             return torch.softmax(logits, dim=1)  # Multi-class segmentation
 

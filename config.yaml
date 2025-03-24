@@ -11,8 +11,8 @@ patience: 20
 augmentation: True
 loss_function:
   name: "CombinedLoss" # Options: "CombinedLoss", "BCEWithLogitsLoss"
-  alpha: 0.4 # Reduced dice loss weight due to class imbalance
-  gamma: 4.0 #  # Increased to focus more on hard examples
+  alpha: 0.75 # Reduced dice loss weight due to class imbalance
+  gamma: 2 #  # Increased to focus more on hard examples
   focal_alpha: 0.9 # Class weight for Focal Loss
 use_class_weights: True # Set to false to deactivate class weights
 checkpoint_dir: "./checkpoints/"

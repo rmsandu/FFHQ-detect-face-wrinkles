@@ -65,22 +65,13 @@ def evaluate(
     # Initialize loss tracking
     losses = {"dice_loss": 0.0, "focal_loss": 0.0, "combined_loss": 0.0}
 
-    loss_fn = CombinedLoss(alpha=0.7, gamma=2.0, focal_alpha=0.25).to(device)
-
-    # Set up local directory for saving images
-    if save_images:
-        run_name = run_name or wandb.run.name if wandb.run else "default_run"
-        save_dir = Path(f"{mode}/{run_name}/epoch_{epoch}")
-        save_dir.mkdir(parents=True, exist_ok=True)
-
     with torch.autocast(device.type if device.type != "mps" else "cpu", enabled=amp):
         for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"{mode} round")):
-            # Move data to device
             images = batch["image"].to(device=device, dtype=torch.float32)
             true_masks = batch["mask"].to(device=device, dtype=torch.float32)
 
             # Forward pass
-            pred_masks = net(images)
+            pred_masks = net(images)  # Raw logits
 
             # Ensure proper shapes
             pred_masks = (
@@ -94,11 +85,14 @@ def evaluate(
                 else true_masks
             )
 
-            # Compute losses
-            combined_loss, dice_loss, focal_loss = loss_fn(pred_masks, true_masks)
-            losses["combined_loss"] += combined_loss.item()
-            losses["dice_loss"] += dice_loss.item()
-            losses["focal_loss"] += focal_loss.item()
+            # Calculate losses separately
+            focal_loss_val = binary_focal_loss(pred_masks, true_masks)
+            dice_loss_val = dice_loss(torch.sigmoid(pred_masks), true_masks)
+            loss = focal_loss_val + dice_loss_val
+
+            # Update loss tracking
+            losses["dice_loss"] += dice_loss_val.item()
+            losses["focal_loss"] += focal_loss_val.item()
 
             # Get predictions for metrics
             pred_probs = torch.sigmoid(pred_masks)

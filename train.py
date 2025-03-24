@@ -17,7 +17,7 @@ from utils.dataset_loading import (
 )
 
 from evaluate import evaluate
-from losses import CombinedLoss
+from losses import binary_focal_loss, dice_loss
 
 
 # Load YAML configuration
@@ -90,20 +90,6 @@ def train_model(model, device, config):
     train_loader = DataLoader(train_set, shuffle=True, **loader_args)
     val_loader = DataLoader(val_set, shuffle=False, **loader_args)
 
-    # Calculate class weights from training set
-    if config.get("use_class_weights", False):
-        pos_weight = calculate_class_weights(train_set)
-    else:
-        pos_weight = None  # No class weights
-
-    # Initialize loss function
-    loss_fn = CombinedLoss(
-        alpha=config["loss_function"]["alpha"],
-        gamma=config["loss_function"]["gamma"],
-        focal_alpha=config["loss_function"]["focal_alpha"],
-        pos_weight=pos_weight,
-    ).to(device)
-
     # Optimizer and scheduler
     optimizer = optim.AdamW(
         model.parameters(),
@@ -132,7 +118,6 @@ def train_model(model, device, config):
 
     try:
         for epoch in range(epochs):
-            # Training phase
             model.train()
             epoch_loss = 0
 
@@ -144,18 +129,19 @@ def train_model(model, device, config):
                     true_masks = batch["mask"].to(device=device, dtype=torch.float32)
 
                     try:
-                        # Validation checks
-                        if not torch.all((true_masks >= 0) & (true_masks <= 1)):
-                            raise ValueError("Mask values must be binary (0 or 1)")
-
                         # Forward pass with AMP
                         with torch.amp.autocast(
                             device.type if device.type != "mps" else "cpu", enabled=amp
                         ):
-                            masks_pred = model(images)
-                            loss, dice_loss, focal_loss = loss_fn(
+                            masks_pred = model(images)  # Raw logits
+                            # Calculate losses separately
+                            focal_loss_val = binary_focal_loss(
                                 masks_pred.squeeze(1), true_masks
                             )
+                            dice_loss_val = dice_loss(
+                                torch.sigmoid(masks_pred.squeeze(1)), true_masks
+                            )
+                            loss = focal_loss_val + dice_loss_val
 
                         # Backward pass
                         optimizer.zero_grad(set_to_none=True)
@@ -164,14 +150,12 @@ def train_model(model, device, config):
                         if amp:
                             grad_scaler.unscale_(optimizer)
 
-                        # Gradient clipping and monitoring - Do this only once
                         grad_norm = torch.nn.utils.clip_grad_norm_(
                             model.parameters(), gradient_clipping
                         )
                         if grad_norm > gradient_clipping:
                             logging.warning(f"Large gradient norm: {grad_norm:.3f}")
 
-                        # Optimizer steps
                         grad_scaler.step(optimizer)
                         grad_scaler.update()
 
@@ -183,8 +167,8 @@ def train_model(model, device, config):
                         wandb.log(
                             {
                                 "train/loss": loss.item(),
-                                "train/dice_loss": dice_loss.item(),
-                                "train/focal_loss": focal_loss.item(),
+                                "train/dice_loss": dice_loss_val.item(),
+                                "train/focal_loss": focal_loss_val.item(),
                                 "train/pos_ratio": true_masks.mean().item(),
                                 "train/step": global_step,
                             }
@@ -225,16 +209,19 @@ def train_model(model, device, config):
             )
 
             # Get validation metrics
-            val_loss = val_score["combined_loss"]
+            val_loss = (
+                val_score["focal_loss"] + val_score["dice_loss"]
+            )  # Total loss for scheduler
             val_iou = val_score["iou"]
 
-            # Step scheduler with validation loss
+            # Step scheduler with total validation loss
             scheduler.step(val_loss)
 
             # Log all validation metrics to W&B
             wandb.log(
                 {
                     **{f"val/{k}": v for k, v in val_score.items()},
+                    "val/total_loss": val_loss,  # Add total loss to logging
                     "val/epoch": epoch,
                     "learning_rate": optimizer.param_groups[0]["lr"],
                 }
