@@ -315,7 +315,7 @@ if __name__ == "__main__":
     logging.info(f"Using device: {device}")
 
     # Initialize model
-    model = UNet(n_channels=3, n_classes=1)
+    model = UNet(n_channels=3, n_classes=1, bilinear=False, pretrained=True)
     model.to(device)
 
     train_model(model, device, config)
