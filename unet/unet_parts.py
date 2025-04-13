@@ -41,27 +41,38 @@ class Down(nn.Module):
 class Up(nn.Module):
     """Upscaling then double conv"""
 
-    def __init__(self, in_channels, out_channels, bilinear=True):
+    def __init__(self, x1_channels, x2_channels, out_channels, bilinear=False):
         super().__init__()
-
-        # if bilinear, use the normal convolutions to reduce the number of channels
+        print(
+            f"[INIT] Up block: x1_channels={x1_channels},  x2_channels={x2_channels},  out_channels={out_channels}"
+        )
+        # in_channels is the number of channels from the encoder path
+        # out_channels is the desired number of channels after the up block
         if bilinear:
             self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
-            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
+            conv_in = x1_channels + x2_channels
         else:
             self.up = nn.ConvTranspose2d(
-                in_channels, in_channels // 2, kernel_size=2, stride=2
+                x1_channels, x1_channels // 2, kernel_size=2, stride=2
             )
-            self.conv = DoubleConv(in_channels, out_channels)
+            conv_in = (x1_channels // 2) + x2_channels
+
+        self.conv = DoubleConv(conv_in, out_channels)
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
-        # input is CHW
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
 
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
-        x = torch.cat([x2, x1], dim=1)
+        if x2 is not None:
+            diffY = x2.size()[2] - x1.size()[2]
+            diffX = x2.size()[3] - x1.size()[3]
+
+            x1 = F.pad(
+                x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2]
+            )
+            x = torch.cat([x2, x1], dim=1)
+        else:
+            x = x1
+
         return self.conv(x)
 
 

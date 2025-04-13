@@ -9,6 +9,10 @@ def binary_focal_loss(pred, target, alpha=0.75, gamma=2.0):
     For y=1: -α(1-p)ᵧ log(p)
     For y=0: -(1-α)pᵧ log(1-p)
     """
+    assert (
+        pred.shape == target.shape
+    ), f"Shape mismatch: pred {pred.shape}, target {target.shape}"
+
     # Get probabilities
     pred_probs = torch.sigmoid(pred)
 

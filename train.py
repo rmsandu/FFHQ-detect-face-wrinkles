@@ -13,7 +13,6 @@ from utils.dataset_loading import (
     WrinkleDataset,
     get_debug_transforms,
     get_augmentation_transforms,
-    calculate_class_weights,
 )
 
 from evaluate import evaluate
@@ -100,7 +99,7 @@ def train_model(model, device, config):
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
-        mode="min",  # Use 'max' since higher IoU is better
+        mode="min",
         factor=0.75,
         patience=10,
         verbose=True,
@@ -115,6 +114,10 @@ def train_model(model, device, config):
     best_model_info = None  # Store best model's info
     patience_counter = 0
     global_step = 0
+    epoch = 0
+    val_loss = 0
+    val_iou = 0
+    val_score = {}
 
     try:
         for epoch in range(epochs):
@@ -315,7 +318,9 @@ if __name__ == "__main__":
     logging.info(f"Using device: {device}")
 
     # Initialize model
-    model = UNet(n_channels=3, n_classes=1, bilinear=False, pretrained=True)
+    model = UNet(
+        n_channels=3, n_classes=1, bilinear=False, pretrained=True, freeze_encoder=True
+    )
     model.to(device)
 
     train_model(model, device, config)

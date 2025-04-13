@@ -7,7 +7,15 @@ from torchvision.models import resnet50, ResNet50_Weights
 
 
 class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, bilinear=False, pretrained=True):
+    def __init__(
+        self,
+        n_channels,
+        n_classes,
+        bilinear=False,
+        pretrained=True,
+        freeze_encoder=False,
+    ):
+
         super(UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
@@ -16,104 +24,67 @@ class UNet(nn.Module):
         # Load pretrained ResNet50 as encoder
         resnet = resnet50(weights=ResNet50_Weights.DEFAULT if pretrained else None)
 
+        # Initial layers from ResNet50
+        self.input_layer = nn.Sequential(
+            resnet.conv1,  # 3 -> 64
+            resnet.bn1,
+            resnet.relu,
+        )
+        self.pool = resnet.maxpool  # 64 -> 64, size halves
         # Encoder from ResNet50
-        self.firstconv = resnet.conv1  # 64 channels
-        self.firstbn = resnet.bn1
-        self.firstrelu = resnet.relu
-        self.firstmaxpool = resnet.maxpool  # 64 channels
         self.encoder1 = resnet.layer1  # 256 channels
         self.encoder2 = resnet.layer2  # 512 channels
         self.encoder3 = resnet.layer3  # 1024 channels
         self.encoder4 = resnet.layer4  # 2048 channels
 
-        # Attention gates with adjusted channels for ResNet50
-        self.attention1 = AttentionGate(F_g=2048, F_l=1024, F_int=512)
-        self.attention2 = AttentionGate(F_g=1024, F_l=512, F_int=256)
-        self.attention3 = AttentionGate(F_g=512, F_l=256, F_int=128)
-        self.attention4 = AttentionGate(F_g=256, F_l=64, F_int=32)
+        # Freeze encoder if desired
+        if freeze_encoder:
+            for param in resnet.parameters():
+                param.requires_grad = False
 
-        # Decoder with transposed convolutions (bilinear=False)
-        self.up1 = Up(3072, 1024, bilinear=False)  # 2048 + 1024 input channels
-        self.up2 = Up(1536, 512, bilinear=False)  # 1024 + 512 input channels
-        self.up3 = Up(768, 256, bilinear=False)  # 512 + 256 input channels
-        self.up4 = Up(320, 64, bilinear=False)  # 256 + 64 input channels
+        # Decoder path
+
+        self.up1 = Up(
+            x1_channels=2048, x2_channels=1024, out_channels=1024, bilinear=bilinear
+        )
+        self.up2 = Up(1024, 512, 512, bilinear=bilinear)
+        self.up3 = Up(512, 256, 256, bilinear=bilinear)
+        self.up4 = Up(256, 64, 128, bilinear=bilinear)
+        self.up5 = Up(128, 0, 64, bilinear=bilinear)
+
+        # Final output layer
 
         self.outc = OutConv(64, n_classes)
 
-        # Initialize weights for non-pretrained parts
-        self._init_weights()
-
-    def _init_weights(self):
-        """Initialize the weights of non-pretrained parts"""
-        for m in [
-            self.attention1,
-            self.attention2,
-            self.attention3,
-            self.attention4,
-            self.up1,
-            self.up2,
-            self.up3,
-            self.up4,
-            self.outc,
-        ]:
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
     def forward(self, x):
-        # Encoder path with ResNet50
-        x1 = self.firstrelu(self.firstbn(self.firstconv(x)))  # 64 channels
-        x1_pool = self.firstmaxpool(x1)
-        x2 = self.encoder1(x1_pool)  # 256 channels
-        x3 = self.encoder2(x2)  # 512 channels
-        x4 = self.encoder3(x3)  # 1024 channels
-        x5 = self.encoder4(x4)  # 2048 channels
+        # Encoder path
 
-        # Decoder path with attention gates
-        x4_att = self.attention1(g=x5, x=x4)
-        x = self.up1(x5, x4_att)
+        # Initial layers
+        x0 = self.input_layer(x)  # 64x256x256
+        x1 = self.encoder1(self.pool(x0))  # 256x128x128
+        x2 = self.encoder2(x1)  # 512x64x64
+        x3 = self.encoder3(x2)  # 1024x32x32
+        x4 = self.encoder4(x3)  # 2048x16x16
+        # print out the shapes of each encoder layer
+        print(
+            f"Encoder shapes: x0: {x0.shape}, x1: {x1.shape}, x2: {x2.shape}, x3: {x3.shape}, x4: {x4.shape}"
+        )
 
-        x3_att = self.attention2(g=x, x=x3)
-        x = self.up2(x, x3_att)
+        # Decoder
+        # print out the shape after each decoder layer
 
-        x2_att = self.attention3(g=x, x=x2)
-        x = self.up3(x, x2_att)
-
-        x1_att = self.attention4(g=x, x=x1)
-        x = self.up4(x, x1_att)
-
+        x = self.up1(x4, x3)
+        print(f"Decoder shape after up1: {x.shape}")
+        x = self.up2(x, x2)
+        print(f"Decoder shape after up2: {x.shape}")
+        x = self.up3(x, x1)
+        print(f"Decoder shape after up3: {x.shape}")
+        x = self.up4(x, x0)
+        print(f"Decoder shape after up4: {x.shape}")
+        x = self.up5(x, None)
+        # print out the shape after each decoder layer
+        print(f"Decoder shape after up5: {x.shape}")
         logits = self.outc(x)
-
-        # Return raw logits for binary segmentation
-        if self.n_classes == 1:
-            return logits
-        return torch.softmax(logits, dim=1)
-
-    def use_checkpointing(self):
-        """Enable gradient checkpointing for memory efficiency"""
-
-        def create_custom_forward(module):
-            def custom_forward(*inputs):
-                return module(*inputs)
-
-            return custom_forward
-
-        # Apply checkpointing to each module
-        modules = [
-            self.encoder1,
-            self.encoder2,
-            self.encoder3,
-            self.encoder4,
-            self.up1,
-            self.up2,
-            self.up3,
-            self.up4,
-        ]
-        for i, module in enumerate(modules):
-            setattr(
-                self,
-                f"module_{i}",
-                torch.utils.checkpoint.checkpoint_sequential([module], 1, module),
-            )
+        return (
+            logits if self.n_classes == 1 else torch.softmax(logits, dim=1)
+        )  # -> 1x512x512
