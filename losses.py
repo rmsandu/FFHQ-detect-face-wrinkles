@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def binary_focal_loss(pred, target, alpha=0.75, gamma=2.0):
+def binary_focal_loss(pred, target, alpha=0.9, gamma=1.0):
     """
     Binary focal loss
     For y=1: -α(1-p)ᵧ log(p)

@@ -4,16 +4,15 @@ batch_size: 8
 learning_rate: 0.0001 # Reduced for more stable training with imbalanced data
 val_percent: 0.2
 test_percent: 0
-amp: true
+amp: false
 weight_decay: 0.00001 # Reduced to prevent over-regularization of rare positive class
 gradient_clipping: 1.0
-patience: 2
+patience: 10
 augmentation: True
 checkpoint_dir: "./checkpoints/"
 image_dir: "./data/masked_face_images"
 mask_dir: "./data/manual_wrinkle_masks"
 wandb_project: "U-Net-Face"
 wandb_entity: "ralucam-sandu"
-
-# Model configuration
-pretrained: true
+pretrained: True
+freeze_encoder: False

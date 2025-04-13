@@ -35,6 +35,8 @@ def train_model(model, device, config):
     weight_decay = config["weight_decay"]
     gradient_clipping = config["gradient_clipping"]
     amp = config["amp"]
+    pretrained = config["pretrained"]
+    freeze_encoder = config["freeze_encoder"]
     checkpoint_dir = Path(config["checkpoint_dir"])
     image_dir = Path(config["image_dir"])
     mask_dir = Path(config["mask_dir"])
@@ -317,7 +319,11 @@ if __name__ == "__main__":
 
     # Initialize model
     model = UNet(
-        n_channels=3, n_classes=1, bilinear=False, pretrained=True, freeze_encoder=True
+        n_channels=3,
+        n_classes=1,
+        bilinear=False,
+        pretrained=pretrained,
+        freeze_encoder=freeze_encoder,
     )
     model.to(device)
 
