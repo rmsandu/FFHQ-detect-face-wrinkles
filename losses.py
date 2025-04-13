@@ -9,6 +9,11 @@ def binary_focal_loss(pred, target, alpha=0.75, gamma=2.0):
     For y=1: -α(1-p)ᵧ log(p)
     For y=0: -(1-α)pᵧ log(1-p)
     """
+
+    # Ensure inputs are in the right shape
+    pred = pred.unsqueeze(1) if pred.dim() == 3 else pred
+    target = target.unsqueeze(1) if target.dim() == 3 else target
+
     assert (
         pred.shape == target.shape
     ), f"Shape mismatch: pred {pred.shape}, target {target.shape}"

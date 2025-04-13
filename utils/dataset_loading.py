@@ -196,12 +196,7 @@ def get_augmentation_transforms():
             A.Affine(
                 scale=(0.9, 1.1), translate_percent=(0.05, 0.1), rotate=(-15, 15), p=0.5
             ),
-            A.ElasticTransform(alpha=30, sigma=120 * 0.05, p=0.2),
-            A.RandomResizedCrop(
-                height=512, width=512, scale=(0.9, 1.0), ratio=(0.9, 1.1), p=0.3
-            ),
             A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.5),
-            A.ColorJitter(brightness=0.2, contrast=0.2, p=0.5),
             A.GaussianBlur(blur_limit=(3, 7), p=0.3),
             A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),

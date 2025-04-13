@@ -81,16 +81,16 @@ def evaluate(
             pred_masks = net(images)  # Raw logits
 
             # Ensure proper shapes
-            pred_masks = (
-                pred_masks.squeeze(1)
-                if pred_masks.dim() == 4 and pred_masks.size(1) == 1
-                else pred_masks
-            )
-            true_masks = (
-                true_masks.squeeze(1)
-                if true_masks.dim() == 4 and true_masks.size(1) == 1
-                else true_masks
-            )
+            # pred_masks = (
+            #     pred_masks.squeeze(1)
+            #     if pred_masks.dim() == 4 and pred_masks.size(1) == 1
+            #     else pred_masks
+            # )
+            # true_masks = (
+            #     true_masks.squeeze(1)
+            #     if true_masks.dim() == 4 and true_masks.size(1) == 1
+            #     else true_masks
+            # )
 
             # Calculate losses separately
             focal_loss_val = binary_focal_loss(pred_masks, true_masks)

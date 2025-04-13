@@ -138,11 +138,9 @@ def train_model(model, device, config):
                         ):
                             masks_pred = model(images)  # Raw logits
                             # Calculate losses separately
-                            focal_loss_val = binary_focal_loss(
-                                masks_pred.squeeze(1), true_masks
-                            )
+                            focal_loss_val = binary_focal_loss(masks_pred, true_masks)
                             dice_loss_val = dice_loss(
-                                torch.sigmoid(masks_pred.squeeze(1)), true_masks
+                                torch.sigmoid(masks_pred), true_masks
                             )
                             loss = focal_loss_val + dice_loss_val
 

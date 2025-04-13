@@ -41,6 +41,11 @@ class UNet(nn.Module):
         if freeze_encoder:
             for param in resnet.parameters():
                 param.requires_grad = False
+        # Unfreeze the last 2 layers of the encoder
+        for param in resnet.layer3.parameters():
+            param.requires_grad = True
+        for param in resnet.layer4.parameters():
+            param.requires_grad = True
 
         # Decoder path
 
