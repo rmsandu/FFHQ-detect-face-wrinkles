@@ -15,7 +15,7 @@ Here are the specs I trained the model on:
 The project leverages the [FFHQ-Wrinkle dataset](https://github.com/labhai/ffhq-wrinkle-dataset) and [A Facial Wrinkle Segmentation Method Based on Unet++ Model](https://github.com/jun01pd2015/wrinkle_dataset), which includes both manually labeled and weakly labeled wrinkle masks. However, I have only used manually labeled wrinkle masks from both datasets. The training code and the weights for the manually segmented wrinkles have been provided in this latest update.
 
 I modified the **`face_masking.py`** to a new version of **`face_parsing_extraction.py`** usign [BiSeNET](https://github.com/CoinCheung/BiSeNet) to crop faces given an input folder and provided face-parsed labels for the face images corresponding to the manual wrinkle labels as 512x512 numpy arrays, which were obtained using [face-parsing.PyTorch](https://github.com/zllrunning/face-parsing.PyTorch). This way the user can create new manual labels and generate new face-parsed images.
-The pre-trained face weights can be downloaded from [here](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view) . The pre-trained wrinkle weights can be downloaded from [here](https://drive.google.com/file/d/107XhA6h_hRtt-1OMQ8rjtUxhqrjXyv08/view?usp=sharing). Both ".pth" weight files should be saved in "res/cp/".
+The pre-trained face weights can be downloaded from [here](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view) . The pre-trained wrinkle weights can be downloaded from [here](https://drive.google.com/file/d/1C_PtOD5UFlluqf5-kYC0xTUCU8UPY12H/view?usp=sharing). Both ".pth" weight files should be saved in "res/cp/".
 
 ## Demo
 

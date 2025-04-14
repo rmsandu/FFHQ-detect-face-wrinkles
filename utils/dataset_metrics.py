@@ -85,7 +85,6 @@ def analyze_class_imbalance(dataloader):
         "CLAHE (Contrast Enhancement)": A.CLAHE(
             clip_limit=2.0, tile_grid_size=(8, 8), p=1.0
         ),
-        "Color Jitter": A.ColorJitter(brightness=0.2, contrast=0.2, p=1.0),
         "Gaussian Blur": A.GaussianBlur(blur_limit=(5, 5), p=1.0),
         "Gaussian Noise": A.GaussNoise(var_limit=(50.0, 100.0), p=0.5),  # Add noise
     }

@@ -22,7 +22,13 @@ class UNet(nn.Module):
         self.bilinear = bilinear
 
         # Load pretrained ResNet50 as encoder
-        resnet = resnet50(weights=ResNet50_Weights.DEFAULT if pretrained else None)
+        if pretrained is True:
+            # Load pretrained weights
+            resnet = resnet50(weights=ResNet50_Weights.DEFAULT)
+        else:
+            # Randomly initialize weights
+            resnet = resnet50(weights=None)
+            print("Randomly initialized weights")
 
         # Initial layers from ResNet50
         self.input_layer = nn.Sequential(
@@ -37,6 +43,20 @@ class UNet(nn.Module):
         self.encoder3 = resnet.layer3  # 1024 channels
         self.encoder4 = resnet.layer4  # 2048 channels
 
+        # Attention mechanism**
+        self.att1 = AttentionGate(
+            F_g=2048, F_l=1024, F_int=512
+        )  # Between encoder4 and encoder3
+        self.att2 = AttentionGate(
+            F_g=1024, F_l=512, F_int=256
+        )  # Between up1 output and encoder2
+        self.att3 = AttentionGate(
+            F_g=512, F_l=256, F_int=128
+        )  # Between up2 output and encoder1
+        self.att4 = AttentionGate(
+            F_g=256, F_l=64, F_int=32
+        )  # Between up3 output and encoder0
+
         # Freeze encoder if desired
         if freeze_encoder is True:
             # Freeze all layers
@@ -46,12 +66,9 @@ class UNet(nn.Module):
             for param in resnet.parameters():
                 param.requires_grad = True
 
-        # Unfreeze the last 2 layers of the encoder when freeze_encoder is True
-        for param in resnet.layer3.parameters():
-            param.requires_grad = True
-        for param in resnet.layer4.parameters():
-            param.requires_grad = True
-
+        # Initialize weights for custom layers if not pretrained
+        if not pretrained:
+            self._initialize_weights()
         # Decoder path
 
         self.up1 = Up(
@@ -80,21 +97,32 @@ class UNet(nn.Module):
             f"Encoder shapes: x0: {x0.shape}, x1: {x1.shape}, x2: {x2.shape}, x3: {x3.shape}, x4: {x4.shape}"
         )
 
-        # Decoder
-        # print out the shape after each decoder layer
+        # Apply attention gates to skip connections
+        x3_att = self.att1(g=x4, x=x3)  # Attention between encoder4 and encoder3
+        x2_att = self.att2(g=x3, x=x2)  # Attention between encoder3 and encoder2
+        x1_att = self.att3(g=x2, x=x1)  # Attention between encoder2 and encoder1
+        x0_att = self.att4(g=x1, x=x0)  # Attention between encoder1 and encoder0
 
-        x = self.up1(x4, x3)
-        print(f"Decoder shape after up1: {x.shape}")
-        x = self.up2(x, x2)
-        print(f"Decoder shape after up2: {x.shape}")
-        x = self.up3(x, x1)
-        print(f"Decoder shape after up3: {x.shape}")
-        x = self.up4(x, x0)
-        print(f"Decoder shape after up4: {x.shape}")
+        # Decoder with attention-gated skip connections
+
+        x = self.up1(x4, x3_att)
+        x = self.up2(x, x2_att)
+        x = self.up3(x, x1_att)
+        x = self.up4(x, x0_att)
         x = self.up5(x, None)
-        # print out the shape after each decoder layer
         print(f"Decoder shape after up5: {x.shape}")
         logits = self.outc(x)
         return (
             logits if self.n_classes == 1 else torch.softmax(logits, dim=1)
         )  # -> 1x512x512
+
+    def _initialize_weights(self):
+        """Initialize weights for all layers"""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
