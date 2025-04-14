@@ -38,10 +38,15 @@ class UNet(nn.Module):
         self.encoder4 = resnet.layer4  # 2048 channels
 
         # Freeze encoder if desired
-        if freeze_encoder:
+        if freeze_encoder is True:
+            # Freeze all layers
             for param in resnet.parameters():
                 param.requires_grad = False
-        # Unfreeze the last 2 layers of the encoder
+        else:
+            for param in resnet.parameters():
+                param.requires_grad = True
+
+        # Unfreeze the last 2 layers of the encoder when freeze_encoder is True
         for param in resnet.layer3.parameters():
             param.requires_grad = True
         for param in resnet.layer4.parameters():

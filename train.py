@@ -35,8 +35,7 @@ def train_model(model, device, config):
     weight_decay = config["weight_decay"]
     gradient_clipping = config["gradient_clipping"]
     amp = config["amp"]
-    pretrained = config["pretrained"]
-    freeze_encoder = config["freeze_encoder"]
+
     checkpoint_dir = Path(config["checkpoint_dir"])
     image_dir = Path(config["image_dir"])
     mask_dir = Path(config["mask_dir"])
@@ -46,7 +45,6 @@ def train_model(model, device, config):
         project=config["wandb_project"],
         entity=config["wandb_entity"],
         config=config,
-        name=f"unet_wrinkle_{wandb.util.generate_id()}",
     )
 
     # Validate data directories
@@ -322,8 +320,8 @@ if __name__ == "__main__":
         n_channels=3,
         n_classes=1,
         bilinear=False,
-        pretrained=pretrained,
-        freeze_encoder=freeze_encoder,
+        pretrained=config.get("pretrained", True),
+        freeze_encoder=config.get("freeze_encoder", True),
     )
     model.to(device)
 
