@@ -9,6 +9,7 @@ weight_decay: 0.00001 # Reduced to prevent over-regularization of rare positive 
 gradient_clipping: 1.0
 patience: 15
 augmentation: True
+dilate_mask: True
 checkpoint_dir: "./checkpoints/"
 image_dir: "./data/masked_face_images"
 mask_dir: "./data/manual_wrinkle_masks"

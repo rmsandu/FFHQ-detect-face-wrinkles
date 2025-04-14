@@ -16,7 +16,14 @@ os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 class WrinkleDataset(Dataset):
     """Custom dataset for loading wrinkle images and masks."""
 
-    def __init__(self, image_dir, mask_dir, transform=None, calculate_weights=False):
+    def __init__(
+        self,
+        image_dir,
+        mask_dir,
+        transform=None,
+        calculate_weights=False,
+        dilate_mask=True,
+    ):
         """
         Args:
             image_dir (str): Path to the directory containing RGB images.
@@ -28,6 +35,7 @@ class WrinkleDataset(Dataset):
         self.mask_dir = mask_dir
         self.transform = transform
         self.calculate_weights = calculate_weights
+        self.dilate_masks = dilate_mask
 
         # Load image and mask filenames
         self.images = sorted(
@@ -88,6 +96,16 @@ class WrinkleDataset(Dataset):
         # Convert to numpy arrays after ensuring sizes match
         image = np.array(pil_image)
         mask = np.array(pil_mask)
+        # Apply dilation if flag is set
+        if self.dilate_mask and mask.max() > 0:
+            dilation_kernel = np.ones((3, 3), np.uint8)
+            binary_mask = (mask > 0).astype(np.uint8)
+            dilated_mask = cv2.dilate(binary_mask, dilation_kernel, iterations=1)
+            mask = (
+                dilated_mask.astype(mask.dtype) * 255
+                if mask.max() > 1
+                else dilated_mask
+            )
 
         # Now apply any additional resizing if needed (though we've already resized)
         basic_transform = A.Compose(

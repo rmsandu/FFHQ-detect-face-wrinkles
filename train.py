@@ -35,7 +35,7 @@ def train_model(model, device, config):
     weight_decay = config["weight_decay"]
     gradient_clipping = config["gradient_clipping"]
     amp = config["amp"]
-
+    dilate_mask = config.get("dilate_masks", False)
     checkpoint_dir = Path(config["checkpoint_dir"])
     image_dir = Path(config["image_dir"])
     mask_dir = Path(config["mask_dir"])
@@ -69,7 +69,11 @@ def train_model(model, device, config):
         else get_debug_transforms()
     )
     dataset = WrinkleDataset(
-        image_dir=image_dir, mask_dir=mask_dir, transform=transform
+        image_dir=image_dir,
+        mask_dir=mask_dir,
+        transform=transform,
+        calculate_weights=False,
+        dilate_mask=False,
     )
 
     # Calculate splits
@@ -79,7 +83,28 @@ def train_model(model, device, config):
     # Create splits with fixed seed
     generator = torch.Generator().manual_seed(42)
     train_set, val_set = random_split(dataset, [n_train, n_val], generator=generator)
+    train_indices, val_indices = torch.utils.data.random_split(
+        range(len(dataset)), [n_train, n_val], generator=generator
+    )
 
+    train_dataset = WrinkleDataset(
+        image_dir=image_dir,
+        mask_dir=mask_dir,
+        transform=transform,
+        calculate_weights=False,
+        dilate_mask=True,  # <-- Only train gets dilation
+    )
+
+    val_dataset = WrinkleDataset(
+        image_dir=image_dir,
+        mask_dir=mask_dir,
+        transform=transform,
+        calculate_weights=False,
+        dilate_mask=False,
+    )
+    # Create subsets
+    train_set = torch.utils.data.Subset(train_dataset, train_indices)
+    val_set = torch.utils.data.Subset(val_dataset, val_indices)
     # Create dataloaders
     loader_args = {
         "batch_size": batch_size,
