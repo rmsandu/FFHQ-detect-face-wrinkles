@@ -35,7 +35,7 @@ class WrinkleDataset(Dataset):
         self.mask_dir = mask_dir
         self.transform = transform
         self.calculate_weights = calculate_weights
-        self.dilate_masks = dilate_mask
+        self.dilate_mask = dilate_mask
 
         # Load image and mask filenames
         self.images = sorted(

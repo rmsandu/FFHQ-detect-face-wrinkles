@@ -92,7 +92,7 @@ def train_model(model, device, config):
         mask_dir=mask_dir,
         transform=transform,
         calculate_weights=False,
-        dilate_mask=True,  # <-- Only train gets dilation
+        dilate_mask=False,  # <-- Only train gets dilation
     )
 
     val_dataset = WrinkleDataset(
