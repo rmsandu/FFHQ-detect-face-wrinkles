@@ -210,6 +210,7 @@ def get_augmentation_transforms():
     return A.Compose(
         [
             A.Resize(height=512, width=512),
+            A.Rotate(limit=15, p=0.5),
             A.HorizontalFlip(p=0.5),
             A.Affine(
                 scale=(0.9, 1.1), translate_percent=(0.05, 0.1), rotate=(-15, 15), p=0.5
@@ -218,6 +219,7 @@ def get_augmentation_transforms():
             A.GaussianBlur(blur_limit=(3, 7), p=0.3),
             A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            A.ElasticTransform(alpha=10, sigma=5, p=0.3),  # Add elastic transform
             ToTensorV2(transpose_mask=True),  # This will ensure proper mask dimensions
         ]
     )

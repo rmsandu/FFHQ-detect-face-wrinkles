@@ -346,7 +346,8 @@ if __name__ == "__main__":
         n_classes=1,
         bilinear=False,
         pretrained=config.get("pretrained", True),
-        freeze_encoder=config.get("freeze_encoder", True),
+        freeze_encoder=config.get("freeze_encoder", False),
+        use_attention=config.get("use_attention", False),
     )
     model.to(device)
 

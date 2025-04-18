@@ -16,4 +16,5 @@ mask_dir: "./data/manual_wrinkle_masks"
 wandb_project: "U-Net-Face"
 wandb_entity: "ralucam-sandu"
 pretrained: True
+use_attention: False
 freeze_encoder: False

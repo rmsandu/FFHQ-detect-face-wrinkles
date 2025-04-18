@@ -14,6 +14,7 @@ class UNet(nn.Module):
         bilinear=False,
         pretrained=True,
         freeze_encoder=False,
+        use_attention=False,
     ):
 
         super(UNet, self).__init__()
@@ -43,19 +44,25 @@ class UNet(nn.Module):
         self.encoder3 = resnet.layer3  # 1024 channels
         self.encoder4 = resnet.layer4  # 2048 channels
 
-        # Attention mechanism**
-        self.att1 = AttentionGate(
-            F_g=2048, F_l=1024, F_int=512
-        )  # Between encoder4 and encoder3
-        self.att2 = AttentionGate(
-            F_g=1024, F_l=512, F_int=256
-        )  # Between up1 output and encoder2
-        self.att3 = AttentionGate(
-            F_g=512, F_l=256, F_int=128
-        )  # Between up2 output and encoder1
-        self.att4 = AttentionGate(
-            F_g=256, F_l=64, F_int=32
-        )  # Between up3 output and encoder0
+        if self.use_attention:
+            print("Using attention gates")
+            # Attention mechanism**
+            self.att1 = AttentionGate(
+                F_g=2048, F_l=1024, F_int=512
+            )  # Between encoder4 and encoder3
+            self.att2 = AttentionGate(
+                F_g=1024, F_l=512, F_int=256
+            )  # Between up1 output and encoder2
+            self.att3 = AttentionGate(
+                F_g=512, F_l=256, F_int=128
+            )  # Between up2 output and encoder1
+            self.att4 = AttentionGate(
+                F_g=256, F_l=64, F_int=32
+            )  # Between up3 output and encoder0
+        else:
+            print("Not using attention gates")
+            # When attention is disabled, simply pass the features through
+            self.att1 = self.att2 = self.att3 = self.att4 = nn.Identity()
 
         # Freeze encoder if desired
         if freeze_encoder is True:
