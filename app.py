@@ -10,6 +10,7 @@ from unet import UNet
 from dotenv import load_dotenv
 from face_parsing_extraction import parse_face
 from face_detection import detect_face, calculate_wrinkle_metrics
+from unet.unet_parts import Up
 
 # ---------------------------
 # Pre-load models and settings
@@ -18,7 +19,7 @@ from face_detection import detect_face, calculate_wrinkle_metrics
 load_dotenv()
 
 # Example images
-example_dir = "example_images"
+example_dir = "example_images/"
 example_images = [
     os.path.join(example_dir, img)
     for img in os.listdir(example_dir)
@@ -27,16 +28,22 @@ example_images = [
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Load the model
-print("Loading model...")
-wrinkle_model = UNet(n_channels=3, n_classes=1)
-wrinkle_model.load_state_dict(
-    torch.load("res/cp/wrinkle_model.pth", map_location=device)
+checkpoint = torch.load("res/cp/wrinkle_model.pth", map_location=device)
+model = (
+    UNet(
+        n_channels=3,
+        n_classes=1,
+        bilinear=False,
+        pretrained=True,
+        freeze_encoder=True,
+    )
+    .to(device)
+    .eval()
 )
-wrinkle_model.eval()
-wrinkle_model.to(device, non_blocking=True)
-print("Model loaded successfully.")
 
+model.load_state_dict(checkpoint["model_state_dict"])  # <- shapes now match
+
+print("Model loaded successfully.")
 # Preprocessing transformation
 wrinkle_transform = transforms.Compose(
     [
@@ -78,7 +85,7 @@ def preprocess_and_predict(
     # Wrinkle detection
     face_tensor = wrinkle_transform(processed_face).unsqueeze(0).to(device)
     with torch.no_grad():
-        wrinkle_output = wrinkle_model(face_tensor)
+        wrinkle_output = model(face_tensor)
         wrinkle_prediction = torch.sigmoid(wrinkle_output).cpu().numpy()
     # display warning if wrinkle prediction is empty
     if wrinkle_prediction.size == 0:

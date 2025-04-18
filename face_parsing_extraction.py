@@ -3,13 +3,21 @@
 """
 Module for face parsing using BiSeNet.
 """
-
+import sys
 import os
 import os.path as osp
 import torch
 import numpy as np
 from PIL import Image
 from torchvision import transforms
+
+
+# Add the face-parsing.PyTorch directory to the Python path
+face_parsing_dir = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "face-parsing.PyTorch"
+)
+sys.path.append(face_parsing_dir)
+
 from model import BiSeNet
 
 
