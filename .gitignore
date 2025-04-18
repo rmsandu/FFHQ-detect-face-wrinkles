@@ -55,6 +55,8 @@ val/
 augmented_examples/
 test/
 validation/
+output_images/
+res/test_res/
 
 # Photos
 *.jpg
