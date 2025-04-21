@@ -1,7 +1,7 @@
 # config.yaml
 epochs: 100
 batch_size: 8
-learning_rate: 0.00001 # Reduced for more stable training with imbalanced data
+learning_rate: 0.0001 # Reduced for more stable training with imbalanced data
 val_percent: 0.2
 test_percent: 0
 amp: false
@@ -16,5 +16,5 @@ mask_dir: "./data/manual_wrinkle_masks"
 wandb_project: "U-Net-Face"
 wandb_entity: "ralucam-sandu"
 pretrained: True
-use_attention: False
+use_attention: True
 freeze_encoder: False

@@ -21,6 +21,9 @@ class UNet(nn.Module):
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
+        self.use_attention = use_attention
+        self.pretrained = pretrained
+        self.freeze_encoder = freeze_encoder
 
         # Load pretrained ResNet50 as encoder
         if pretrained is True:
@@ -43,26 +46,6 @@ class UNet(nn.Module):
         self.encoder2 = resnet.layer2  # 512 channels
         self.encoder3 = resnet.layer3  # 1024 channels
         self.encoder4 = resnet.layer4  # 2048 channels
-
-        if self.use_attention:
-            print("Using attention gates")
-            # Attention mechanism**
-            self.att1 = AttentionGate(
-                F_g=2048, F_l=1024, F_int=512
-            )  # Between encoder4 and encoder3
-            self.att2 = AttentionGate(
-                F_g=1024, F_l=512, F_int=256
-            )  # Between up1 output and encoder2
-            self.att3 = AttentionGate(
-                F_g=512, F_l=256, F_int=128
-            )  # Between up2 output and encoder1
-            self.att4 = AttentionGate(
-                F_g=256, F_l=64, F_int=32
-            )  # Between up3 output and encoder0
-        else:
-            print("Not using attention gates")
-            # When attention is disabled, simply pass the features through
-            self.att1 = self.att2 = self.att3 = self.att4 = nn.Identity()
 
         # Freeze encoder if desired
         if freeze_encoder is True:
@@ -103,12 +86,20 @@ class UNet(nn.Module):
         print(
             f"Encoder shapes: x0: {x0.shape}, x1: {x1.shape}, x2: {x2.shape}, x3: {x3.shape}, x4: {x4.shape}"
         )
+        # Apply attention gates only if enabled
+        if self.use_attention:
+            x3_att = self.att1(g=x4, x=x3)  # Attention between encoder4 and encoder3
+            x2_att = self.att2(g=x3, x=x2)  # Attention between encoder3 and encoder2
+            x1_att = self.att3(g=x2, x=x1)  # Attention between encoder2 and encoder1
+            x0_att = self.att4(g=x1, x=x0)  # Attention between encoder1 and encoder0
+        else:
+            x3_att, x2_att, x1_att, x0_att = x3, x2, x1, x0
 
         # Apply attention gates to skip connections
-        x3_att = self.att1(g=x4, x=x3)  # Attention between encoder4 and encoder3
-        x2_att = self.att2(g=x3, x=x2)  # Attention between encoder3 and encoder2
-        x1_att = self.att3(g=x2, x=x1)  # Attention between encoder2 and encoder1
-        x0_att = self.att4(g=x1, x=x0)  # Attention between encoder1 and encoder0
+        # x3_att = self.att1(g=x4, x=x3)  # Attention between encoder4 and encoder3
+        # x2_att = self.att2(g=x3, x=x2)  # Attention between encoder3 and encoder2
+        # x1_att = self.att3(g=x2, x=x1)  # Attention between encoder2 and encoder1
+        # x0_att = self.att4(g=x1, x=x0)  # Attention between encoder1 and encoder0
 
         # Decoder with attention-gated skip connections
 
