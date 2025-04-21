@@ -312,7 +312,8 @@ if __name__ == "__main__":
     # Load configuration from YAML file
 
     config = load_config("config.yaml")
-
+    pretrained = config.get("pretrained", True)
+    freeze_encoder = config.get("freeze_encoder", False)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")

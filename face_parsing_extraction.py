@@ -10,7 +10,7 @@ import torch
 import numpy as np
 from PIL import Image
 from torchvision import transforms
-from model import BiSeNet
+from .model import BiSeNet  # Use relative import if 'model.py' is in the same package
 
 
 def parse_face(
