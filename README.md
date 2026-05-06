@@ -1,11 +1,10 @@
 ## Flickr-Faces-HQ-Wrinkle Dataset U-net Segmentation Implementation (FFHQ-Wrinkle)
 
-## Upgrades 04.05.2026 --> pls contact me directly for the weights or data used for training: rmsan[at]duck[dot]com
+Updates 04.05.2026 --> pls contact me directly for the weights or data used for training: rmsan[at]duck[dot]com
 
 ![Teaser image](./teaser.png)
 
 ## Upgrades 22.02.2025
-
 This project is designed to perform facial wrinkle segmentation using a U-Net model. The main goal is to segment wrinkles in high-resolution face images.This is a non-trivial task due to huge class imbalance (wrinkles vs. non-wrinkles), manual annotation of wrinkles, having common agreement over what's even a wrinkle.
 
 Here are the specs I trained the model on:
