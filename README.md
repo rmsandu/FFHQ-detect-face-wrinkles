@@ -1,5 +1,7 @@
 ## Flickr-Faces-HQ-Wrinkle Dataset U-net Segmentation Implementation (FFHQ-Wrinkle)
 
+## Upgrades 04.05.2026 --> pls contact me directly for the weights or data used for training: rmsan[at]duck[dot]com
+
 ![Teaser image](./teaser.png)
 
 ## Upgrades 22.02.2025
