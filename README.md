@@ -1,6 +1,6 @@
 ## Flickr-Faces-HQ-Wrinkle Dataset U-net Segmentation Implementation (FFHQ-Wrinkle)
 
-Updates 04.05.2026 --> pls contact me directly for the weights or data used for training: rmsan[at]duck[dot]com
+Updates 01.06.2026 --> pls contact me directly at rmsan[at]duck[dot]com for the weights or data used for training if this [dropbox link for weights](https://www.dropbox.com/scl/fi/kciagv4foq9a2oemkkn3g/best_checkpoint_iou032.pth?rlkey=1a4ff61rpj6kxn5txcgrkbxob&st=dziyemm1&dl=0) does NOT WORK.
 
 ![Teaser image](./teaser.png)
 
