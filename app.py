@@ -16,6 +16,11 @@ from dotenv import load_dotenv
 from face_parsing_extraction import parse_face
 from face_detection import detect_face, calculate_wrinkle_metrics
 from unet.unet_parts import Up
+from scripts.download_weights import (
+    FACE_PARSING_FILENAME,
+    WRINKLE_MODEL_FILENAME,
+    download_all_weights,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -40,13 +45,19 @@ example_images = [
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-CHECKPOINT_PATH = "res/cp/wrinkle_model.safetensors"
-if not os.path.exists(CHECKPOINT_PATH):
-    raise FileNotFoundError(
-        f"Wrinkle model checkpoint not found at '{CHECKPOINT_PATH}'. "
-        "Run `python scripts/download_weights.py` to fetch the pretrained weights "
-        "before starting the demo."
-    )
+CHECKPOINT_PATH = os.path.join("res/cp", WRINKLE_MODEL_FILENAME)
+FACE_PARSING_CHECKPOINT_PATH = os.path.join("res/cp", FACE_PARSING_FILENAME)
+
+if not os.path.exists(CHECKPOINT_PATH) or not os.path.exists(FACE_PARSING_CHECKPOINT_PATH):
+    try:
+        logging.info("Model weights not found locally, downloading from Hugging Face Hub...")
+        download_all_weights()
+    except Exception as exc:
+        raise FileNotFoundError(
+            f"Wrinkle model checkpoint not found at '{CHECKPOINT_PATH}' and automatic "
+            f"download failed ({exc}). Run `python scripts/download_weights.py` manually "
+            "to fetch the pretrained weights before starting the demo."
+        ) from exc
 
 state_dict = load_safetensors(CHECKPOINT_PATH, device=device)
 model = (
@@ -102,7 +113,7 @@ def preprocess_and_predict(
     try:
         with tempfile.TemporaryDirectory() as sub_dir_path:
             resized_img.save(os.path.join(sub_dir_path, f"image_{timestamp}.png"))
-            processed_face = parse_face(dspth=sub_dir_path, cp="face_segmentation.pth")
+            processed_face = parse_face(dspth=sub_dir_path)
 
             if SAVE_UPLOADS:
                 save_dir = os.path.join("output_images", timestamp)

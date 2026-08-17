@@ -3,28 +3,21 @@
 """
 Module for face parsing using BiSeNet.
 """
-import sys
 import os
 import os.path as osp
 import torch
 import numpy as np
 from PIL import Image
+from safetensors.torch import load_file as load_safetensors
 from torchvision import transforms
 
-
-# Add the face-parsing.PyTorch directory to the Python path
-face_parsing_dir = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "face-parsing.PyTorch"
-)
-sys.path.append(face_parsing_dir)
-
-from model import BiSeNet
+from bisenet import BiSeNet
 
 
 def parse_face(
     respth="./res/test_res",
     dspth="./data",
-    cp="face_segmentation.pth",
+    cp="face_segmentation.safetensors",
 ):
     """
     :param respth: path to save the result if needed
@@ -34,11 +27,12 @@ def parse_face(
     if not os.path.exists(respth):
         os.makedirs(respth)
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     n_classes = 19
     net = BiSeNet(n_classes=n_classes)
-    net.cuda()
+    net.to(device)
     save_pth = osp.join("res/cp", cp)
-    net.load_state_dict(torch.load(save_pth))
+    net.load_state_dict(load_safetensors(save_pth, device=device))
     net.eval()
 
     to_tensor = transforms.Compose(
@@ -53,7 +47,7 @@ def parse_face(
             image = img.resize((512, 512), Image.Resampling.BILINEAR)
             img = to_tensor(image)
             img = torch.unsqueeze(img, 0)
-            img = img.cuda()
+            img = img.to(device)
             out = net(img)[0]
             parsing = out.squeeze(0).cpu().numpy().argmax(0)
             # print(parsing)
@@ -89,9 +83,9 @@ if __name__ == "__main__":
     # create new masked face images folder if doesn't exist
     if not os.path.exists(MASKED_FACE_IMAGES):
         os.makedirs(MASKED_FACE_IMAGES)
-    parse_face(respth=MASKED_FACE_IMAGES, dspth=BASE_FOLDER, cp="face_segmentation.pth")
+    parse_face(respth=MASKED_FACE_IMAGES, dspth=BASE_FOLDER)
     if not os.path.exists(MASKED_FACE_IMAGES):
         os.makedirs(MASKED_FACE_IMAGES)
-    parse_face(respth=MASKED_FACE_IMAGES, dspth=BASE_FOLDER, cp="face_segmentation.pth")
+    parse_face(respth=MASKED_FACE_IMAGES, dspth=BASE_FOLDER)
 
     print("Face parsing completed.")

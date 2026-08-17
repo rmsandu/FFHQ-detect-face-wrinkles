@@ -297,4 +297,4 @@ The Gradio demo (`app.py`) only needs `requirements-demo.txt`, a lighter-weight 
 - [x] Publish training codes.
 - [x] Add unit tests and CI.
 - [x] Migrate pretrained weight hosting to Hugging Face Hub — [rmsandu/ffhq-wrinkle-unet](https://huggingface.co/rmsandu/ffhq-wrinkle-unet).
-- [ ] Move demo to HuggingFace Spaces
+- [ ] Move demo to HuggingFace Spaces — `app.py` is Spaces-ready (auto-downloads weights on startup, no external `sys.path` dependencies), blocked only on a HF PRO subscription (Gradio Spaces are no longer free on `cpu-basic`)
