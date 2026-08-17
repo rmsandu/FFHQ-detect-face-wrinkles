@@ -8,6 +8,7 @@ import os
 import cv2
 import matplotlib.cm as cm
 import numpy as np
+from safetensors.torch import load_file as load_safetensors
 from torchvision import transforms
 from PIL import Image
 from unet import UNet
@@ -39,7 +40,7 @@ example_images = [
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-CHECKPOINT_PATH = "res/cp/wrinkle_model.pth"
+CHECKPOINT_PATH = "res/cp/wrinkle_model.safetensors"
 if not os.path.exists(CHECKPOINT_PATH):
     raise FileNotFoundError(
         f"Wrinkle model checkpoint not found at '{CHECKPOINT_PATH}'. "
@@ -47,7 +48,7 @@ if not os.path.exists(CHECKPOINT_PATH):
         "before starting the demo."
     )
 
-checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
+state_dict = load_safetensors(CHECKPOINT_PATH, device=device)
 model = (
     UNet(
         n_channels=3,
@@ -60,7 +61,7 @@ model = (
     .eval()
 )
 
-model.load_state_dict(checkpoint["model_state_dict"])  # <- shapes now match
+model.load_state_dict(state_dict)  # <- shapes now match
 
 logging.info("Model loaded successfully from %s", CHECKPOINT_PATH)
 # Preprocessing transformation

@@ -36,6 +36,7 @@ data/
 *.pkl
 *.pth
 *.pt
+*.safetensors
 
 # Logs
 *.log

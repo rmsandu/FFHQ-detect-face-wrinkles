@@ -5,12 +5,9 @@ link is dead" flow with a single reproducible command:
 
     python scripts/download_weights.py
 
-NOTE: this script downloads from the Hugging Face model repo referenced by
-`DEFAULT_REPO_ID` below. That repo does not exist yet -- it needs to be created
-and populated (see the "Weight hosting migration" section of README.md / the
-project plan) before this script will work. Until then, pass --repo-id to point
-at wherever the weights are currently hosted, or continue using the manual
-download instructions in README.md.
+Downloads from the Hugging Face model repo referenced by `DEFAULT_REPO_ID`
+below (see scripts/convert_to_safetensors.py for how weights get uploaded
+there). Pass --repo-id to point at a different repo if needed.
 """
 
 import argparse
@@ -22,7 +19,7 @@ from huggingface_hub import hf_hub_download
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 DEFAULT_REPO_ID = "rmsandu/ffhq-wrinkle-unet"
-DEFAULT_FILENAME = "wrinkle_model.pth"
+DEFAULT_FILENAME = "wrinkle_model.safetensors"
 DEFAULT_DEST_DIR = "res/cp"
 
 
