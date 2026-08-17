@@ -44,9 +44,6 @@ class Up(nn.Module):
 
     def __init__(self, x1_channels, x2_channels, out_channels, bilinear=False):
         super().__init__()
-        print(
-            f"[INIT] Up block: x1_channels={x1_channels},  x2_channels={x2_channels},  out_channels={out_channels}"
-        )
         # in_channels is the number of channels from the encoder path
         # out_channels is the desired number of channels after the up block
         if bilinear:

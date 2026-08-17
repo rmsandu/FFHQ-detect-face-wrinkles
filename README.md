@@ -1,5 +1,7 @@
 ## Flickr-Faces-HQ-Wrinkle Dataset U-net Segmentation Implementation (FFHQ-Wrinkle)
 
+![License](https://img.shields.io/badge/code%20license-MIT-blue) ![CI](https://github.com/rmsandu/FFHQ-detect-face-wrinkles/actions/workflows/ci.yml/badge.svg)
+
 Updates 01.06.2026 --> pls contact me directly at rmsan[at]duck[dot]com for the weights or data used for training if this [dropbox link for weights](https://www.dropbox.com/scl/fi/kciagv4foq9a2oemkkn3g/best_checkpoint_iou032.pth?rlkey=1a4ff61rpj6kxn5txcgrkbxob&st=dziyemm1&dl=0) does NOT WORK.
 
 ![Teaser image](./teaser.png)
@@ -84,6 +86,8 @@ If you use this dataset for your research, please cite our paper:
 The first public facial wrinkle dataset, ‘FFHQ-Wrinkle’, comprises pairs of face images and their corresponding wrinkle masks. We focused on wrinkle labels while utilizing the existing high-resolution face image dataset [FFHQ (Flickr-Faces-HQ)](https://github.com/NVlabs/ffhq-dataset), which contains 70,000 high-resolution (1024x1024) face images captured under various angles and lighting conditions. The dataset we provide consists of one set of manually labeled wrinkle masks (N=1,000) and one set of "weak" wrinkle masks, or masked texture maps, generated without human labor (N=50,000). We selected 50,000 images from the FFHQ dataset, specifically image IDs 00000 to 49999. We used these 50,000 face images to create the weakly labeled wrinkles and randomly sampled 1,000 images from these to create the ground truth wrinkles.
 
 ## Licenses
+
+**Note on code vs. weights/data:** the code in this repository is released under the [MIT License](./LICENSE). The pretrained wrinkle-segmentation weights, however, were trained on the FFHQ-Wrinkle dataset and therefore **inherit its CC BY-NC-SA 4.0 terms** (non-commercial, share-alike, attribution required) — the MIT license on the code does not extend to the weights or the dataset. See below for the full dataset license.
 
 The FFHQ-Wrinkle dataset is provided under the same [Creative Commons BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) license as the original FFHQ dataset.
 You are free to use, redistribute, and adapt this dataset for non-commercial purposes under the following conditions:
@@ -262,8 +266,23 @@ The folder structure after the instructions is as follows:
         └── 49999.png
 ```
 
+## Development
+
+Install dev/test tooling with `pip install -r requirements-dev.txt`, then:
+
+```bash
+pytest -v          # run the test suite (tests/)
+ruff check .        # lint (currently non-blocking in CI due to pre-existing debt)
+```
+
+Tests run automatically on push/PR via GitHub Actions (`.github/workflows/ci.yml`), CPU-only, with `pretrained=False` model instantiation so no network access to torchvision's model hub is required.
+
+The Gradio demo (`app.py`) only needs `requirements-demo.txt`, a lighter-weight subset of the full `requirements.txt` used for training.
+
 ## Todos
 
 - [x] Publish pre-trained model (U-Net) weights.
 - [x] Publish training codes.
+- [x] Add unit tests and CI.
+- [ ] Migrate pretrained weight hosting to Hugging Face Hub (`scripts/download_weights.py` is ready; the HF model repo itself still needs to be created and populated).
 - [ ] Move demo to HuggingFace Spaces

@@ -1,8 +1,12 @@
 from datetime import datetime
+import logging
+import shutil
+import tempfile
 import gradio as gr
 import torch
 import os
 import cv2
+import matplotlib.cm as cm
 import numpy as np
 from torchvision import transforms
 from PIL import Image
@@ -11,6 +15,13 @@ from dotenv import load_dotenv
 from face_parsing_extraction import parse_face
 from face_detection import detect_face, calculate_wrinkle_metrics
 from unet.unet_parts import Up
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+# Uploaded images are processed in a temp dir and discarded by default. Set
+# SAVE_UPLOADS=true to persist them under output_images/ for local debugging
+# (do not enable this on a public deployment without a cleanup policy).
+SAVE_UPLOADS = os.getenv("SAVE_UPLOADS", "false").lower() == "true"
 
 # ---------------------------
 # Pre-load models and settings
@@ -28,7 +39,15 @@ example_images = [
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-checkpoint = torch.load("res/cp/wrinkle_model.pth", map_location=device)
+CHECKPOINT_PATH = "res/cp/wrinkle_model.pth"
+if not os.path.exists(CHECKPOINT_PATH):
+    raise FileNotFoundError(
+        f"Wrinkle model checkpoint not found at '{CHECKPOINT_PATH}'. "
+        "Run `python scripts/download_weights.py` to fetch the pretrained weights "
+        "before starting the demo."
+    )
+
+checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
 model = (
     UNet(
         n_channels=3,
@@ -43,7 +62,7 @@ model = (
 
 model.load_state_dict(checkpoint["model_state_dict"])  # <- shapes now match
 
-print("Model loaded successfully.")
+logging.info("Model loaded successfully from %s", CHECKPOINT_PATH)
 # Preprocessing transformation
 wrinkle_transform = transforms.Compose(
     [
@@ -54,15 +73,19 @@ wrinkle_transform = transforms.Compose(
 )
 
 
+def _wrinkle_probability_heatmap(prob_map: np.ndarray) -> np.ndarray:
+    """Render a sigmoid probability map (H, W) as an RGB heatmap image."""
+    colored = cm.get_cmap("inferno")(prob_map)  # (H, W, 4) RGBA in [0, 1]
+    return (colored[..., :3] * 255).astype(np.uint8)
+
+
 def preprocess_and_predict(
     img: Image.Image,
 ) -> np.ndarray:
-    """Process the resized image and generate wrinkle overlay."""
-    # create a new directory for the image and save it there with a unique timestap and name
-
+    """Process the resized image and generate wrinkle overlay + confidence heatmap."""
     if img is None:
         gr.Warning("No image uploaded. Please upload an image to proceed.")
-        raise ValueError("No image provided!")
+        raise gr.Error("No image provided! Please upload a photo to proceed.")
 
     resized_img = img.resize((512, 512), Image.Resampling.LANCZOS)
 
@@ -72,28 +95,35 @@ def preprocess_and_predict(
         gr.Warning(
             "No human face detected. Please upload a photo with a close-up shot of a face."
         )
-        # raise ValueError("No face detected!")
 
-    image_dir = "output_images"
-    os.makedirs(image_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    # make subdirectory for the image
-    os.makedirs(f"{image_dir}/{timestamp}", exist_ok=True)
-    sub_dir_path = f"{image_dir}/{timestamp}"
-    resized_img.save(os.path.join(sub_dir_path, f"image_{timestamp}.png"))
-    processed_face = parse_face(dspth=sub_dir_path, cp="face_segmentation.pth")
-    # Wrinkle detection
-    face_tensor = wrinkle_transform(processed_face).unsqueeze(0).to(device)
-    with torch.no_grad():
-        wrinkle_output = model(face_tensor)
-        wrinkle_prediction = torch.sigmoid(wrinkle_output).cpu().numpy()
-    # display warning if wrinkle prediction is empty
+
+    try:
+        with tempfile.TemporaryDirectory() as sub_dir_path:
+            resized_img.save(os.path.join(sub_dir_path, f"image_{timestamp}.png"))
+            processed_face = parse_face(dspth=sub_dir_path, cp="face_segmentation.pth")
+
+            if SAVE_UPLOADS:
+                save_dir = os.path.join("output_images", timestamp)
+                os.makedirs(save_dir, exist_ok=True)
+                shutil.copytree(sub_dir_path, save_dir, dirs_exist_ok=True)
+
+        # Wrinkle detection
+        face_tensor = wrinkle_transform(processed_face).unsqueeze(0).to(device)
+        with torch.no_grad():
+            wrinkle_output = model(face_tensor)
+            wrinkle_prediction = torch.sigmoid(wrinkle_output).cpu().numpy()
+    except Exception as exc:
+        logging.exception("Inference pipeline failed")
+        raise gr.Error(f"Wrinkle detection failed: {exc}") from exc
+
     if wrinkle_prediction.size == 0:
         gr.Warning("No wrinkle prediction found. YOU ARE PERFECT.")
-    # Create overlay
 
-    wrinkle_mask = (wrinkle_prediction > 0.5).astype(np.uint8)
+    prob_map = wrinkle_prediction[0, 0]  # (H, W) in [0, 1]
+    wrinkle_mask = (prob_map > 0.5).astype(np.uint8)
     wrinkle_percentage_unet = calculate_wrinkle_metrics(wrinkle_mask)
+    heatmap = _wrinkle_probability_heatmap(prob_map)
 
     annotations = [
         (wrinkle_mask, "Segmentation Wrinkles"),  # Label for DL mask
@@ -101,6 +131,7 @@ def preprocess_and_predict(
 
     return (
         (resized_img, annotations),
+        heatmap,
         wrinkle_percentage_unet,
     )
 
@@ -151,6 +182,10 @@ with gr.Blocks(theme=gr.themes.Ocean()) as demo:
                 color_map={"Wrinkles": "#0000FF"},
                 label="Wrinkle Detection Overlay",
             )
+            confidence_heatmap = gr.Image(
+                label="Model Confidence Heatmap",
+                type="numpy",
+            )
             run_button = gr.Button("Run Model", variant="primary")
 
             wrinkle_percentage_unet = gr.Label(label="Wrinkle Percentage (UNet):")
@@ -161,6 +196,7 @@ with gr.Blocks(theme=gr.themes.Ocean()) as demo:
                 inputs=[input_image],
                 outputs=[
                     result_image,
+                    confidence_heatmap,
                     wrinkle_percentage_unet,
                 ],
             )
