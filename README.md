@@ -1,26 +1,32 @@
 ## Flickr-Faces-HQ-Wrinkle Dataset U-net Segmentation Implementation (FFHQ-Wrinkle)
 
-Updates 01.06.2026 --> pls contact me directly at rmsan[at]duck[dot]com for the weights or data used for training if this [dropbox link for weights](https://www.dropbox.com/scl/fi/kciagv4foq9a2oemkkn3g/best_checkpoint_iou032.pth?rlkey=1a4ff61rpj6kxn5txcgrkbxob&st=dziyemm1&dl=0) does NOT WORK.
+![License](https://img.shields.io/badge/code%20license-MIT-blue) ![CI](https://github.com/rmsandu/FFHQ-detect-face-wrinkles/actions/workflows/ci.yml/badge.svg) [![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-yellow)](https://huggingface.co/rmsandu/ffhq-wrinkle-unet)
 
 ![Teaser image](./teaser.png)
 
-## Upgrades 22.02.2025
-This project is designed to perform facial wrinkle segmentation using a U-Net model. The main goal is to segment wrinkles in high-resolution face images.This is a non-trivial task due to huge class imbalance (wrinkles vs. non-wrinkles), manual annotation of wrinkles, having common agreement over what's even a wrinkle.
+This project performs facial wrinkle segmentation using a U-Net model with a pretrained ResNet50 encoder. The main goal is to segment wrinkles in high-resolution face images — a non-trivial task due to the huge class imbalance between wrinkle and non-wrinkle pixels, the effort of manual annotation, and the lack of common agreement over what even counts as a wrinkle.
 
-Here are the specs I trained the model on:
+Here are the specs the released model was trained on:
 
 - Total Pixels: 477102080
 - Wrinkle Pixels: 131385 (0.03%)
 - Background Pixels: 476970695 (99.97%)
 
-The project leverages the [FFHQ-Wrinkle dataset](https://github.com/labhai/ffhq-wrinkle-dataset) and [A Facial Wrinkle Segmentation Method Based on Unet++ Model](https://github.com/jun01pd2015/wrinkle_dataset), which includes both manually labeled and weakly labeled wrinkle masks. However, I have only used manually labeled wrinkle masks from both datasets. The training code and the weights for the manually segmented wrinkles have been provided in this latest update.
+The project leverages the [FFHQ-Wrinkle dataset](https://github.com/labhai/ffhq-wrinkle-dataset) and [A Facial Wrinkle Segmentation Method Based on Unet++ Model](https://github.com/jun01pd2015/wrinkle_dataset), which include both manually labeled and weakly labeled wrinkle masks. Only the manually labeled wrinkle masks from both datasets were used for training.
 
-I modified the **`face_masking.py`** to a new version of **`face_parsing_extraction.py`** usign [BiSeNET](https://github.com/CoinCheung/BiSeNet) to crop faces given an input folder and provided face-parsed labels for the face images corresponding to the manual wrinkle labels as 512x512 numpy arrays, which were obtained using [face-parsing.PyTorch](https://github.com/zllrunning/face-parsing.PyTorch). This way the user can create new manual labels and generate new face-parsed images.
-The pre-trained face weights can be downloaded from [here](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view) . The pre-trained wrinkle weights can be downloaded from [here](https://drive.google.com/file/d/1C_PtOD5UFlluqf5-kYC0xTUCU8UPY12H/view?usp=sharing). Both ".pth" weight files should be saved in "res/cp/".
+**`face_parsing_extraction.py`** uses [BiSeNET](https://github.com/CoinCheung/BiSeNet) to crop faces given an input folder and provides face-parsed labels for the face images corresponding to the manual wrinkle labels as 512x512 numpy arrays, obtained using [face-parsing.PyTorch](https://github.com/zllrunning/face-parsing.PyTorch). This way the user can create new manual labels and generate new face-parsed images.
+
+**Pretrained wrinkle-segmentation weights** are hosted on Hugging Face Hub: [rmsandu/ffhq-wrinkle-unet](https://huggingface.co/rmsandu/ffhq-wrinkle-unet). Fetch them with:
+
+```bash
+python scripts/download_weights.py
+```
+
+This saves `wrinkle_model.safetensors` into `res/cp/`. The pre-trained BiSeNet face-parsing weights are still downloaded separately from [here](https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view) and should also be saved in `res/cp/`.
 
 ## Demo
 
-Running the demo can be done with [Gradio](https://www.gradio.app/). The demo can be run with **`app.py`**, after the weights have been downloaded in the "res/cp/" folder.
+Running the demo can be done with [Gradio](https://www.gradio.app/). After downloading the weights (see above) into `res/cp/`, run the demo with **`app.py`** (`pip install -r requirements-demo.txt` is enough for this — no need for the full training dependencies).
 ![Gradio demo image](./demo_screenshot.png)
 
 ## Key Components
@@ -75,7 +81,15 @@ Running the demo can be done with [Gradio](https://www.gradio.app/). The demo ca
 More info about the FFHQ-Wrinkle dataset project, please check their repo page for more info, this was just copy & pasted from them.
 FFHQ-Wrinkle is an extension of the [FFHQ (Flickr-Faces-HQ)](https://github.com/NVlabs/ffhq-dataset) dataset, specifically designed to include additional features related to facial wrinkles. This dataset aims to support research and development in facial recognition, aging simulation, and other related fields.
 
-If you use this dataset for your research, please cite our paper:
+## Citation
+
+This model, this code, and the manually-labeled training set used to train it were put together by Raluca-Maria Sandu. If you use this repo or the trained model, please cite:
+
+> **Segmentation of Fine Facial Wrinkles with U-Net**<br> > https://rmsandu.net/blog/2025-04-18-wrinkle-segmentation.html<br>
+> Raluca-Maria Sandu<br>
+> 2025<br>
+
+The underlying FFHQ-Wrinkle dataset should also be cited:
 
 > **Facial Wrinkle Segmentation for Cosmetic Dermatology: Pretraining with Texture Map-Based Weak Supervision**<br> > https://arxiv.org/abs/2408.10060<br>
 > Junho Moon, Haejun Chung, Ikbeom Jang<br>
@@ -84,6 +98,8 @@ If you use this dataset for your research, please cite our paper:
 The first public facial wrinkle dataset, ‘FFHQ-Wrinkle’, comprises pairs of face images and their corresponding wrinkle masks. We focused on wrinkle labels while utilizing the existing high-resolution face image dataset [FFHQ (Flickr-Faces-HQ)](https://github.com/NVlabs/ffhq-dataset), which contains 70,000 high-resolution (1024x1024) face images captured under various angles and lighting conditions. The dataset we provide consists of one set of manually labeled wrinkle masks (N=1,000) and one set of "weak" wrinkle masks, or masked texture maps, generated without human labor (N=50,000). We selected 50,000 images from the FFHQ dataset, specifically image IDs 00000 to 49999. We used these 50,000 face images to create the weakly labeled wrinkles and randomly sampled 1,000 images from these to create the ground truth wrinkles.
 
 ## Licenses
+
+**Note on code vs. weights/data:** the code in this repository is released under the [MIT License](./LICENSE). The pretrained wrinkle-segmentation weights, however, were trained on the FFHQ-Wrinkle dataset and therefore **inherit its CC BY-NC-SA 4.0 terms** (non-commercial, share-alike, attribution required) — the MIT license on the code does not extend to the weights or the dataset. See below for the full dataset license.
 
 The FFHQ-Wrinkle dataset is provided under the same [Creative Commons BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) license as the original FFHQ dataset.
 You are free to use, redistribute, and adapt this dataset for non-commercial purposes under the following conditions:
@@ -262,8 +278,23 @@ The folder structure after the instructions is as follows:
         └── 49999.png
 ```
 
+## Development
+
+Install dev/test tooling with `pip install -r requirements-dev.txt`, then:
+
+```bash
+pytest -v          # run the test suite (tests/)
+ruff check .        # lint (currently non-blocking in CI due to pre-existing debt)
+```
+
+Tests run automatically on push/PR via GitHub Actions (`.github/workflows/ci.yml`), CPU-only, with `pretrained=False` model instantiation so no network access to torchvision's model hub is required.
+
+The Gradio demo (`app.py`) only needs `requirements-demo.txt`, a lighter-weight subset of the full `requirements.txt` used for training.
+
 ## Todos
 
 - [x] Publish pre-trained model (U-Net) weights.
 - [x] Publish training codes.
+- [x] Add unit tests and CI.
+- [x] Migrate pretrained weight hosting to Hugging Face Hub — [rmsandu/ffhq-wrinkle-unet](https://huggingface.co/rmsandu/ffhq-wrinkle-unet).
 - [ ] Move demo to HuggingFace Spaces

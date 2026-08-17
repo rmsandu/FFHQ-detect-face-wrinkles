@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install CPU-only torch
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install runtime + dev dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install numpy pillow tqdm "opencv-python-headless==4.10.0.84" "albumentations==1.4.22"
+
+      - name: Lint
+        # The existing codebase has pre-existing lint debt (long lines, a star
+        # import in unet/unet_parts.py) not addressed by this CI setup pass.
+        # Surface it in logs without blocking merges; tighten once cleaned up.
+        run: ruff check . || true
+
+      - name: Test
+        run: pytest --cov -v

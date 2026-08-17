@@ -60,6 +60,7 @@ requests==2.32.3
 rich==13.9.4
 ruff==0.8.2
 safehttpx==0.1.6
+safetensors==0.4.5
 scikit-image==0.24.0
 scipy==1.14.1
 semantic-version==2.10.0
